@@ -104,6 +104,7 @@
     </target>
 	
 	<target name="run" depends="build">
+		<parallel>
         <java classname="${main-class}" fork="true" timeout="10000">
         	<classpath>
     	        <path refid="classpath"/>
@@ -111,6 +112,16 @@
             	<path location="${resources.dir}"/>
 			</classpath>
         </java>
+		<sequential>
+			<sleep milliseconds="500"/>
+			<exec executable="curl">
+			        <arg line="http://localhost:8080/index.html"/>
+		    </exec>
+			<exec executable="curl">
+			        <arg line="http://localhost:8080/shutdown"/>
+		    </exec>
+			</sequential>
+		</parallel>
 	</target>
 
 </project>

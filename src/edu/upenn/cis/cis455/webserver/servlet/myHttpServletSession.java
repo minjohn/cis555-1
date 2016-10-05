@@ -22,6 +22,8 @@ public class myHttpServletSession implements HttpSession {
 	 */
 	public String getId() {
 		// TODO Auto-generated method stub
+		
+		// Note: maybe get a UUID generated to use?
 		return null;
 	}
 

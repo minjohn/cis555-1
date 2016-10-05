@@ -207,7 +207,7 @@ public class myServer extends Thread{
 		Handler h;
 		HashMap<String,HttpServlet> servlets = null;
 		HashMap<String,String> url_mappings = null;
-		myHttpServletSession session;
+		HashMap<String,myHttpServletSession> session = new HashMap<String,myHttpServletSession>();
 		try {
 			h = parseWebdotxml(web_dir);
 			
@@ -262,6 +262,7 @@ public class myServer extends Thread{
 			t.setStatusHandle(stats);
 			t.setServlets(servlets);
 			t.setServletURLMappings(url_mappings);
+			t.setSessionMap(session);
 			t.start();
 		}
 		

@@ -59,6 +59,7 @@ public class workerThread extends Thread {
 	statusHandle statusHandle = null;
 	HashMap<String, HttpServlet> servletMap;
 	HashMap<String, String> servletURLMap;
+	HashMap<String, myHttpServletSession> sessionMap;
 	// End Instance variables
 
 	
@@ -144,6 +145,15 @@ public class workerThread extends Thread {
 	 **/
 	public void setServletURLMappings( HashMap<String, String> mappings  ){
 		servletURLMap = mappings; 
+	}
+	
+	/** 
+	 * Set the sessionMap for this thread. sessionMappings just contains the key-value pairs
+	 *   for the uuids to session objects. A thread could create a session and store it on the 
+	 *   "server" and subsequently access it per cookie-indicated string.
+	 **/
+	public void setSessionMap( HashMap<String, myHttpServletSession> sessionMappings  ){
+		sessionMap = sessionMappings; 
 	}
 	
 	
@@ -1211,757 +1221,93 @@ public class workerThread extends Thread {
 		}
 	}
 
-	
-	// for handling HEAD requests
-	
-	public void doHead(Socket clientSocket, BufferedReader reader, String[] requestParts, ConnectionPreference cp, myHttpServletSession session){
 		
-		
-		String filename = requestParts[1];
-		String httpVersion = requestParts[2];
-		
-		
-		Map<String, List<String>> headers = new HashMap<String, List<String>>();
-		
-		String nextLine;
-		
-		log.debug(threadMessage("using Socket: " + clientSocket.toString()));
-		
-		synchronized(state){
-			state = "Handling " + filename;
-		}
-		
-		try {
-			nextLine = reader.readLine();
-			log.debug(threadMessage("First line: " + nextLine));
-			boolean run = true;
-			boolean malformedHeader = false;
-			boolean multiLine = false;
-			String lastHeader = null; // for multiLine headers
-			while( nextLine != null && nextLine.compareTo("\n") != 0 && nextLine.compareTo("\r\n") != 0  ){
-			
-				// to skip the last new line character in the HTTPRequest ( Last line of HttpRequests
-				//   is a newline character, but BufferedReader will return the contents of the line without
-				//   the line-terminating characters (\n ,\r\n). Hence it will return an empty string?
-				if(!nextLine.isEmpty()){ 
-					
-					
-					//find the whitespace between header and value, if there is none, then its a malformed request
-	
-					int colon = nextLine.indexOf(':');	
-					if( colon == -1 &&  multiLine == false ){
-						
-						//ignore this header, malformed header
-					}
-					else if( colon == -1 &&  multiLine == true ){ // possible multiple line header 
-						
-						// add to the value array of header key
-						log.debug(threadMessage("last header:" + lastHeader));
-						
-						String v = nextLine.trim();
-						
-						log.debug(threadMessage("v: " + v));
-						
-						if(v.endsWith(",") == true){
-							
-							v = v.substring(0, v.length()-1);
-							log.debug(threadMessage("without comma v: " + v));
-							multiLine = true;
-						}else{
-							multiLine = false;
-						}
-						
-						headers.get(lastHeader).add( v ); 
-					} 
-					else{ // this is a Single Line Header
-						
-						String header, value;
-
-						
-						header = nextLine.substring(0, colon).toLowerCase().trim(); // exclude the colon
-						value = nextLine.substring(colon+1, nextLine.length()).trim(); 
-
-						List<String> val = new ArrayList<String>();
-
-						if(value.endsWith(",")){ // this is a possible multiline multivalue header, handle the headless values above
-							multiLine = true;
-						}
-
-						if(header.compareTo("user-agent") != 0){ // one line comma separated multivalue header
-
-							for( String v : Arrays.asList(value.split(","))){
-								val.add(v.trim());
-							}
-						}
-						else{ // parse user-agent values specially because they can have comments in brackets (...)
-
-							int pos = 0;
-
-							log.debug("parsing user-agent");
-
-							while( value != null ){
-
-								log.debug("value: " + value);
-
-								// its a comment, add it to the previous user-agent info
-								if(value.startsWith("(")){
-
-									int endparen = value.indexOf(')');
-									if(endparen > 0){
-										log.debug("pos: " + pos);
-										int prev = pos-1;
-										log.debug("prev: " + prev);
-										if( prev >= 0){ //there is a valid user agent to apply comment to
-											val.set(prev, val.get(prev) + " " + value.substring(0, endparen+1) );
-										}
-									}
-
-									value = ( value.substring(endparen+1).trim() );
-									pos = pos-1; // since we move the potential element to the previous element 
-
-								}
-								else {
-									int nextSpace = value.indexOf(' ');
-									if(nextSpace < 0 ){ // last agent thing
-										val.add(value.trim());
-										value = null;
-									}
-									else{
-										val.add(value.substring(0, nextSpace));
-										value = value.substring(nextSpace).trim();
-									}
-
-								}
-								pos ++;
-							}
-
-						}
-
-
-						headers.put(header, val);
-
-						log.debug(threadMessage("Header: " + header + 
-								"  |  Value: " + val.toString()));
-
-						lastHeader = header;
-					}
-					
-					nextLine = reader.readLine();
-					log.debug(threadMessage("Next line: " + nextLine));
-				}
-				else{
-					nextLine = null; // trigger the termination condition
-				}
-			}
-			
-			log.debug(threadMessage("Out of while loop: "));
-			
-		} catch (SocketTimeoutException timeout ){
-			try {
-				clientSocket.close();
-				cp.setConnectionPreference(false);
-				return;
-			} catch (IOException e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}
-		}catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			synchronized(state){
-				state = "ERROR in reading Headers";
-			}
-		}
-
-
-		// check headers for HTTP 1.1 compliance
-		boolean httpCompliant = false;
-		log.debug("Checking if this is a HTTP 1.1 client");
-		
-		if( httpVersion.compareTo("HTTP/1.1") == 0){
-			log.debug("This is a HTTP 1.1 client, checking compliance... (It must contain at least Host: header)");
-			if(!headers.containsKey("host")){
-				
-				log.debug(" 'Host:' header not found! this is not HTTP compliant");
-				// Malformed request, send a 400 Bad Request.
-				int code = 400;
-				String mimeType = "text/html";
-				String response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-				PrintWriter out;
-				try {
-					out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-					out.write(response);
-					out.flush();
-
-					//out.close();
-				} catch (SocketTimeoutException timeout ){
-					try {
-						clientSocket.close();
-						cp.setConnectionPreference(false);
-						return;
-					} catch (IOException e1) {
-						// TODO Auto-generated catch block
-						e1.printStackTrace();
-					}
-				}catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}				
-
-			}
-			else{
-				log.debug(" 'Host:' header found ==> HTTP compliant");
-				httpCompliant = true;
-			}
-		}else{ // HTTP 1.0 doesn't require Headers
-			httpCompliant = true;
-		}
-		
-		
-
-		if(httpCompliant == true){
-			try {
-				// Write response (headers and body) for single response
-				//if single file... (assuming we validate path and figure out if it exists prior to this...)
-
-				File f;
-				boolean isDirectory = false;
-				boolean isControl = false;
-				boolean expectContinue = false;
-
-				String mimeType = "text/html";
-
-				
-				// check for the 100 Continue header
-				if(headers.containsKey("expect") ){
-					log.debug("checking expect: header value");
-					for(String expects : headers.get("expect")){
-						if(expects.toLowerCase().compareTo("100-continue") == 0 
-								&& httpVersion.compareTo("HTTP/1.0") != 0){
-							expectContinue = true;
-						}
-					}
-					
-				}
-				
-				// Check for the 'connection: ' header
-				if(headers. containsKey("connection")){
-					
-					log.debug("checking the value for Connection: header value");
-					
-					for(String connectionAlive : headers.get("connection")){
-						if(connectionAlive.toLowerCase().compareTo("close") == 0){
-							cp.setConnectionPreference(false);
-						}
-					}
-
-				}
-				else{ // no connection header value defaults to single request then connection close
-					cp.setConnectionPreference(false);
-				}
-				
-
-				log.debug(threadMessage("filename requested: " + filename));
-
-				// default webpage
-				int http;
-				if( (http = checkifURL(filename)) > 0 ){
-					log.debug(threadMessage("filename is an absolute URL, parsing " ));
-					String resource = parseURLforResource(filename, http);
-					
-					filename = resource;
-					
-				}
-				
-				
-				f = new File(root+"/"+filename);
-				
-				// root directory
-				if(filename.compareTo("/") == 0){
-
-					log.debug(threadMessage("Requested root"));
-					isDirectory = true;
-					
-				}
-				//special control URLs
-				else if ( filename.compareTo("/shutdown") == 0 ){
-					// in case server is propogating shutdown and we are changing it too, doesn't matter
-					//   b/c it is idempotent.
-
-					personalShutdownFlag = true; // volatile boolean
-
-					log.debug(threadMessage("Requested /SHUTDOWN"));
-					
-				}
-				else if ( filename.compareTo("/control") == 0 ){
-					log.debug(threadMessage("Requested /CONTROL"));
-					isControl = true;
-					
-				}
-				// its a directory
-				else if ( f.isDirectory() == true ){
-					// generate the list of files in the directory
-					log.debug(threadMessage("Requested a directory!"));
-					
-					isDirectory = true;
-				}
-				// its a single file.
-				else {
-					log.debug(threadMessage("Requested a file!"));
-					
-				}
-				
-				
-				
-				int code = 0;
-				String body = "";
-				String response = "";
-
-
-
-
-				if( personalShutdownFlag == true ){ // we got a shutdown requested
-
-					code = 200;
-					mimeType = "text/html";
-					response = HttpResponseUtils.writeResponseHeaders(code, httpVersion, cp.getConnectionPreference()); // two variable method has no body so its ok to use
-
-					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-					
-					//Check for 100 Continue flag
-					if( expectContinue == true ){
-						String continueResponse = HttpResponseUtils.getContinueResponse();
-						out.write(continueResponse);
-					}
-					
-					out.write(response);
-					out.flush();
-
-					//out.close();
-
-				}
-
-				else if(isControl){  // Return the control page
-					String controlPage = getControlPageText();
-					
-					File controlFile = new File("resources/controlpage.html");
-
-					code = 200;
-					mimeType = "text/html";
-					response = HttpResponseUtils.writeHeadResponseHeaders(code, mimeType, controlPage, httpVersion, controlFile.lastModified(), cp.getConnectionPreference());
-
-					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-					
-					//Check for 100 Continue flag
-					if( expectContinue == true ){
-						String continueResponse = HttpResponseUtils.getContinueResponse();
-						out.write(continueResponse);
-					}
-					
-					out.write(response);
-					out.flush();
-
-					//out.close();
-
-				}
-
-				else if(!f.exists()){ // check if file exists
-
-					// respond with 404 file not found
-					code = 404;
-					log.debug(threadMessage("ERROR - File does not exist!"));
-					response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-					out.write(response);
-					out.flush();
-
-					//out.close();
-
-				}else{ // file or directory exists
-
-					log.debug(threadMessage("File or directory exists!"));
-
-					// validate the path...
-
-					Path pathString =  Paths.get(root+"/"+filename).toRealPath();
-
-					log.debug("Validating path:   "+ pathString.toString());
-
-					boolean validPath = validatePath(pathString);
-
-					if( validPath == false ){
-
-						code = 403;
-						log.debug(threadMessage("ERROR - File access forbidden!"));
-						response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-						PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-						out.write(response);
-						out.flush();
-
-						//out.close();
-
-
-					}
-					else { // it is a valid path
-						
-						log.debug(threadMessage("Path is valid"));
-						// check if the request provided the modified/unmodified-Since flag
-						boolean modifiedSinceHeader = false;
-						boolean unmodifiedSinceHeader = false;
-						
-						boolean preconditionMet = true;
-						
-						if(headers.containsKey("if-modified-since") && headers.containsKey("if-unmodified-since")){
-							
-							//error.... It does not make sense to have both headers.
-							
-							log.debug(" 'Host:' header not found! this is not HTTP compliant");
-							// Malformed request, send a 400 Bad Request.
-							code = 400;
-							mimeType = "text/html";
-							response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-							PrintWriter out;
-							try {
-								out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-								out.write(response);
-								out.flush();
-
-								//out.close();
-							}catch (SocketTimeoutException timeout ){
-								try {
-									clientSocket.close();
-									cp.setConnectionPreference(false);
-									return;
-								} catch (IOException e1) {
-									// TODO Auto-generated catch block
-									e1.printStackTrace();
-								}
-							} catch (IOException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							}				
-
-						}
-						else if(headers.containsKey("if-modified-since")){
-							modifiedSinceHeader = true;	
-						}
-						else if(headers.containsKey("if-unmodified-since")){
-							unmodifiedSinceHeader = true;
-						}
-						
-						Date lastModified = new Date(f.lastModified());
-						
-						if(modifiedSinceHeader ){
-							Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-modified-since").get(0));
-							
-							if(headerModified == null){ // ignore the malformed data
-								log.debug(threadMessage("Error Parsing date, ignoring the header"));
-								preconditionMet = true;
-							}
-							else if( lastModified.before( headerModified ) || lastModified.equals( headerModified )){
-								if(headerModified != null){
-									log.debug(" File had not been modified since: "+ headerModified.toString());
-								}
-								// Malformed request, send a 400 Bad Request.
-								code = 412;
-								mimeType = "text/html";
-								response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-								PrintWriter out;
-								try {
-									out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-									out.write(response);
-									out.flush();
-
-									//out.close();
-								} catch (SocketTimeoutException timeout ){
-									try {
-										clientSocket.close();
-										cp.setConnectionPreference(false);
-										return;
-									} catch (IOException e1) {
-										// TODO Auto-generated catch block
-										e1.printStackTrace();
-									}
-								}catch (IOException e) {
-									// TODO Auto-generated catch block
-									e.printStackTrace();
-								}		
-								
-								preconditionMet = false;
-								
-							}
-							
-						}
-						else if (unmodifiedSinceHeader ){
-							Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-unmodified-since").get(0));
-							
-							if(headerModified == null){ // ignore the malformed data
-								preconditionMet = true;
-							}
-							else if(lastModified.after( headerModified )){
-								
-								log.debug(" File had not been unmodified since: "+ headerModified.toString());
-								// Malformed request, send a 400 Bad Request.
-								code = 412;
-								mimeType = "text/html";
-								response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-								PrintWriter out;
-								try {
-									out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-									out.write(response);
-									out.flush();
-
-									//out.close();
-								} catch (SocketTimeoutException timeout ){
-									try {
-										clientSocket.close();
-										cp.setConnectionPreference(false);
-										return;
-									} catch (IOException e1) {
-										// TODO Auto-generated catch block
-										e1.printStackTrace();
-									}
-								}catch (IOException e) {
-									// TODO Auto-generated catch block
-									e.printStackTrace();
-								}		
-								
-								preconditionMet = false;
-								
-							}
-						}
-						
-						// either the If-Unmodified/Modified-Since headers were not included or the precondition was met
-						//    either one.
-						if(preconditionMet == true){ 
-
-							log.debug(threadMessage("Precondition Met!"));
-							
-							if(!f.canRead()){ //check if file is readable
-								
-								// respond with 403 file permission denied
-								code = 403;
-								log.debug(threadMessage("ERROR - File access denied!"));
-								response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-								PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-								out.write(response);
-								out.flush();
-
-								//out.close();
-							}
-							else { // file is readable
-
-								if(isDirectory){
-									log.debug(threadMessage("Got a directory request"));
-									StringBuffer directoryContents = new StringBuffer();
-									StringBuffer fileContents = new StringBuffer();
-
-									// generate html page of the files in directory....
-
-									File directoryPage = new File("resources/directory.html");
-
-									BufferedReader directoryReader = new BufferedReader(new FileReader(directoryPage));
-
-									String line;
-
-									while((line = directoryReader.readLine()) != null){
-										directoryContents.append(line);
-									}
-
-
-									File[] listofFiles = f.listFiles();
-
-									for(File file : listofFiles){
-
-										if (file.isFile()) {
-											fileContents.append("<p> - " + file.getName()+"</p>");
-										} else if (file.isDirectory()) {
-											fileContents.append("<p style=\"font-weight:bold\"> - " + file.getName() +"/</p>");
-										}
-
-									}
-
-									String directory = directoryContents.toString();
-									directory = directory.replace("<!-- Include files HERE -->", fileContents.toString());
-									directory = directory.replace("<!-- Directory Name -->", f.getName()+"/");
-
-									// set the code 
-									code = 200;
-									body = directory.toString();
-									mimeType = "text/html";
-
-									response = HttpResponseUtils.writeHeadResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
-
-									PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-									//Check for 100 Continue flag
-									if( expectContinue == true ){
-										String continueResponse = HttpResponseUtils.getContinueResponse();
-										out.write(continueResponse);
-									}
-
-									out.write(response);
-									out.flush();
-
-									//out.close();
-								}
-
-
-								else{
-									log.debug(threadMessage("checking the file type..."));
-
-									mimeType = getMimeType(filename);
-									
-									if(mimeType == null && f.isFile() == false ){
-										//unsupported file type 415
-										code = 415;
-
-										// generate the html here...
-										response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-										PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-										out.write(response);
-										out.flush();
-
-										//out.close();
-										
-									}
-									else if(mimeType == null && f.isFile() == true ){ // Unsupported Media Type
-										log.debug(threadMessage("file type unknown: "));
-										
-										
-										code = 200;
-										mimeType = "application/octet-stream";
-										
-										Path path = FileSystems.getDefault().getPath(root, filename);
-										BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
-										
-										// re-use image byte stream headers to send data 
-										response = HttpResponseUtils.writeHeadImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
-
-										PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-										//Check for 100 Continue flag
-										if( expectContinue == true ){
-											String continueResponse = HttpResponseUtils.getContinueResponse();
-											outHeaders.write(continueResponse);
-										}
-
-										outHeaders.write(response);
-										outHeaders.flush();
-
-										//outHeaders.close();
-										
-									}
-
-									else if ( mimeType.substring(0, mimeType.indexOf("/")).compareTo("image") == 0 ){ // its an image
-										log.debug(threadMessage("Got image file type: "+mimeType));
-
-										//set the code
-										code = 200;
-										//body = contents.toString();
-										Path path = FileSystems.getDefault().getPath(root, filename);
-										BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
-										response = HttpResponseUtils.writeHeadImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference());
-
-										PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-										//Check for 100 Continue flag
-										if( expectContinue == true ){
-											String continueResponse = HttpResponseUtils.getContinueResponse();
-											outHeaders.write(continueResponse);
-										}
-
-										outHeaders.write(response);
-										outHeaders.flush();
-
-										//outHeaders.close();
-
-									}else { // its text file
-
-										log.debug(threadMessage("Got text file type: "+mimeType));
-
-										BufferedReader filereader = new BufferedReader(new FileReader(f));
-
-										StringBuffer contents = new StringBuffer();
-										String line;
-										while( (line = filereader.readLine()) != null ){
-											contents.append(line);
-										}
-
-										log.debug(threadMessage("file contents: " + contents.toString()));
-
-										//set the code
-										code = 200;
-										body = contents.toString();
-
-										response = HttpResponseUtils.writeHeadResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
-
-										PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-										//Check for 100 Continue flag
-										if( expectContinue == true ){
-											String continueResponse = HttpResponseUtils.getContinueResponse();
-											out.write(continueResponse);
-										}
-										out.write(response);
-										out.flush();
-
-										//out.close();
-
-									}
-								}
-							}
-						}
-					}
-				}
-				//clientSocket.close();
-
-			} catch (SocketTimeoutException timeout ){
-				try {
-					clientSocket.close();
-					cp.setConnectionPreference(false);
-					return;
-				} catch (IOException e1) {
-					// TODO Auto-generated catch block
-					e1.printStackTrace();
-				}
-			}catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-				synchronized(state){
-					state = "ERROR in retreiving File";
-				}
-			}
-		}
-	
-	}
-	
 	
 	/****
 	 *   MS2 code using servlets
 	 * 
 	 * ****/
 	
-	public void processRequest(   ){
+	public void processRequest( Socket requestSocket, ConnectionPreference cp  ) 
+			throws SocketTimeoutException, IOException, ServletException
+	{
 		
 		
-		String filename = requestParts[1];
-		String httpVersion = requestParts[2];
+		BufferedReader reader = new BufferedReader(new InputStreamReader(requestSocket.getInputStream()));
 		
+		String requestLine = reader.readLine();
+		String filename = null ;
+		String httpVersion = null;
+		String method = null;
+
+		log.debug(threadMessage("requestline Text: " + requestLine));
+
+
+		if(requestLine != null){
+
+			String[] requestParts = requestLine.split("\\s+");
+
+
+			if(requestParts.length != 3){
+				//send 400 bad request
+
+				log.debug(threadMessage(" Request does not have all of the parts!"));
+				int code = 400;
+				log.debug(threadMessage("ERROR - Imcomplete Request!"));
+				/*for (String part : requestParts){
+
+				if(   ){
+
+				}
+			    }*/ //some regex to check if there is a match for HTTP request
+				String response = HttpResponseUtils.writeErrorResponse(code, "HTTP/1.1", cp.getConnectionPreference());
+				PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
+				out.write(response);
+				out.flush();
+				cp.setConnectionPreference(false);
+				return; 
+
+			}
+			//GET Request
+			else if (requestParts[0].compareToIgnoreCase("GET") == 0 || requestParts[0].compareToIgnoreCase("POST") == 0){
+				log.debug(threadMessage(" Got a GET or POST request. "));
+				
+				method = requestParts[0];
+				filename = requestParts[1];
+				httpVersion = requestParts[2];
+				
+				
+			}else{  // Unsupported Method
+
+				//invalid method
+
+				log.debug(threadMessage(" Got another kind of request: " + requestParts[0]));
+				int code = 501;
+				log.debug(threadMessage("ERROR - Method not Implemented!"));
+				String response = HttpResponseUtils.writeErrorResponse(code, requestParts[2], cp.getConnectionPreference());
+				PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
+				out.write(response);
+				out.flush();
+				
+				cp.setConnectionPreference(false);
+				return;
+				// probably need to flush til the next request line if there is one...
+			}
+
+		}
+		else{ // nothing to read from the stream its probably indicative to close the stream
+			
+			requestSocket.close();
+			cp.setConnectionPreference(false);
+			return;
+		}
+		
+			
 		Map<String, List<String>> headers = new HashMap<String, List<String>>();
 
 		String nextLine;
 		
-		//log.debug(threadMessage("using Socket: " + clientSocket.toString()));
-		
+		// update state for the /control page
 		synchronized(state){
 			state = "Handling " + filename;
 		}
@@ -2102,7 +1448,6 @@ public class workerThread extends Thread {
 			
 		} catch (SocketTimeoutException timeout ){
 			try {
-				clientSocket.close();
 				cp.setConnectionPreference(false);
 				return;
 			} catch (IOException e1) {
@@ -2123,7 +1468,7 @@ public class workerThread extends Thread {
 		myHttpServletResponse res = new myHttpServletResponse();
 		
 		// Fill in the Method, parameters?, and headers
-		req.setMethod(requestParts[0]);
+		req.setMethod(method);
 		req.setProtocol(httpVersion);
 		
 		for( String key : headers.keySet()){
@@ -2198,16 +1543,7 @@ public class workerThread extends Thread {
 	@Override
 	public void run(){
 		
-		runMS2();
-		
-	}
-	
-
-	
-	public void runMS1() {
-		
 		ConnectionPreference cp = new ConnectionPreference();
-		BufferedReader reader;
 		
 		myHttpServletSession session = new myHttpServletSession();
 		
@@ -2219,8 +1555,6 @@ public class workerThread extends Thread {
 			cp.setConnectionPreference(true);
 			//reset socket each time
 			requestSocket = null;
-			//reset the reader each time for each Socket's Stream
-			reader = null;
 			
 			// if we get a shutdown signal, we update the shared shutdown flag so that
 			//  server can see it and propagate it, then we exit.
@@ -2238,9 +1572,7 @@ public class workerThread extends Thread {
 			}
 			shutdownLock.unlock(); // unlock if we don't go into if statement.
 			
-			
 			log.debug(threadMessage("beginning of loop..."));
-			
 			
 			log.debug(threadMessage("attempting to dequeue..."));
 			synchronized(state){
@@ -2271,287 +1603,7 @@ public class workerThread extends Thread {
 
 					try {
 						
-						if(reader == null){
-							reader = new BufferedReader(new InputStreamReader(requestSocket.getInputStream()));
-						}
-
-
-						String requestLine = reader.readLine();
-
-						log.debug(threadMessage("requestline Text: " + requestLine));
-
-
-						if(requestLine != null){
-
-							String[] requestParts = requestLine.split("\\s+");
-
-
-							if(requestParts.length != 3){
-								//send 400 bad request
-
-								log.debug(threadMessage(" Request does not have all of the parts!"));
-								int code = 400;
-								log.debug(threadMessage("ERROR - Imcomplete Request!"));
-								/*for (String part : requestParts){
-
-								if(   ){
-
-								}
-							    }*/ //some regex to check if there is a match for HTTP request
-								String response = HttpResponseUtils.writeErrorResponse(code, "HTTP/1.1", cp.getConnectionPreference());
-								PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
-								out.write(response);
-								out.flush();
-								
-								// probably need to flush til the next request line if there is one... 
-
-							}
-							//GET Request
-							else if (requestParts[0].compareToIgnoreCase("GET") == 0){
-								log.debug(threadMessage(" Got a GET request. "));
-
-
-								// Note: reader gets closed in doGet() method
-								doGet(requestSocket, reader, requestParts, cp, session);
-								
-								
-							    
-								
-
-							// HEAD Request	
-							}else if(requestParts[0].compareToIgnoreCase("HEAD") == 0){
-								
-								log.debug(threadMessage(" Got a HEAD request: " + requestParts[0]));
-								
-								doHead(requestSocket, reader, requestParts, cp, session);
-
-								
-
-								
-							}else{  // Unsupported Method
-
-								//invalid method
-
-								log.debug(threadMessage(" Got another kind of request: " + requestParts[0]));
-								int code = 501;
-								log.debug(threadMessage("ERROR - Method not Implemented!"));
-								String response = HttpResponseUtils.writeErrorResponse(code, requestParts[2], cp.getConnectionPreference());
-								PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
-								out.write(response);
-								out.flush();
-								
-								// probably need to flush til the next request line if there is one...
-							}
-
-							//requestSocket.close();
-						}
-						else{ // nothing to read from the stream its probably indicative to close the stream
-							
-							//String requestLine2 = reader.readLine();
-
-							//log.debug(threadMessage("ANYTHING ???? requestline2 Text: " + requestLine2));
-							
-							
-							requestSocket.close();
-							cp.setConnectionPreference(false);
-						}
-
-					} catch (SocketTimeoutException timeout ){
-						try {
-							requestSocket.close();
-							cp.setConnectionPreference(false);
-						} catch (IOException e1) {
-							// TODO Auto-generated catch block
-							e1.printStackTrace();
-						}
-					}catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-						try {
-							requestSocket.close();
-							cp.setConnectionPreference(false);
-						} catch (IOException e1) {
-							// TODO Auto-generated catch block
-							e1.printStackTrace();
-						}
-					} catch (ServletException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				}
-				
-				try {
-					requestSocket.close();
-				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				
-			}
-			
-			// after doing some work, close the socket, assume that for persistent connections, 
-			//   we handle in the above while loop
-			
-
-		}
-		
-		log.debug(threadMessage("Shutting Down..."));
-
-	}
-
-	
-	
-	public void runMS2() {
-		
-		ConnectionPreference cp = new ConnectionPreference();
-		BufferedReader reader;
-		
-		myHttpServletSession session = new myHttpServletSession();
-		
-		
-		log.debug(threadMessage("grabbing lock..."));
-		while (true){
-			
-			
-			cp.setConnectionPreference(true);
-			//reset socket each time
-			requestSocket = null;
-			//reset the reader each time for each Socket's Stream
-			reader = null;
-			
-			// if we get a shutdown signal, we update the shared shutdown flag so that
-			//  server can see it and propagate it, then we exit.
-			shutdownLock.lock();
-			if(personalShutdownFlag == true){
-				shutdownLock.unlock();
-				shutdownCtrl.shutdown_requested = true;
-				try {
-					reqQ.setShutdown();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				break;
-			}
-			shutdownLock.unlock(); // unlock if we don't go into if statement.
-			
-			
-			log.debug(threadMessage("beginning of loop..."));
-			
-			
-			log.debug(threadMessage("attempting to dequeue..."));
-			synchronized(state){
-				state = "WAITING";
-			}
-			try {
-				requestSocket = reqQ.dequeue();
-			} catch (InterruptedException e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}
-			
-						
-			// got a socket, lets handle the request.
-			if(requestSocket != null){
-				
-				
-				while (cp.getConnectionPreference() == true){
-					synchronized(state){
-						state = "WORKING";
-					}
-
-					log.debug(threadMessage("Got a request Socket!"));
-
-					// do work.
-
-
-
-					try {
-						
-						if(reader == null){
-							reader = new BufferedReader(new InputStreamReader(requestSocket.getInputStream()));
-						}
-
-
-						String requestLine = reader.readLine();
-
-						log.debug(threadMessage("requestline Text: " + requestLine));
-
-
-						if(requestLine != null){
-
-							String[] requestParts = requestLine.split("\\s+");
-
-
-							if(requestParts.length != 3){
-								//send 400 bad request
-
-								log.debug(threadMessage(" Request does not have all of the parts!"));
-								int code = 400;
-								log.debug(threadMessage("ERROR - Imcomplete Request!"));
-								/*for (String part : requestParts){
-
-								if(   ){
-
-								}
-							    }*/ //some regex to check if there is a match for HTTP request
-								String response = HttpResponseUtils.writeErrorResponse(code, "HTTP/1.1", cp.getConnectionPreference());
-								PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
-								out.write(response);
-								out.flush();
-								
-								// probably need to flush til the next request line if there is one... 
-
-							}
-							//GET Request
-							else if (requestParts[0].compareToIgnoreCase("GET") == 0){
-								log.debug(threadMessage(" Got a GET request. "));
-
-
-								// Note: reader gets closed in doGet() method
-								doGet(requestSocket, reader, requestParts, cp, session);
-								
-								
-							    
-								
-
-							// HEAD Request	
-							}else if(requestParts[0].compareToIgnoreCase("HEAD") == 0){
-								
-								log.debug(threadMessage(" Got a HEAD request: " + requestParts[0]));
-								
-								doHead(requestSocket, reader, requestParts, cp, session);
-
-								
-
-								
-							}else{  // Unsupported Method
-
-								//invalid method
-
-								log.debug(threadMessage(" Got another kind of request: " + requestParts[0]));
-								int code = 501;
-								log.debug(threadMessage("ERROR - Method not Implemented!"));
-								String response = HttpResponseUtils.writeErrorResponse(code, requestParts[2], cp.getConnectionPreference());
-								PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
-								out.write(response);
-								out.flush();
-								
-								// probably need to flush til the next request line if there is one...
-							}
-
-							//requestSocket.close();
-						}
-						else{ // nothing to read from the stream its probably indicative to close the stream
-							
-							//String requestLine2 = reader.readLine();
-
-							//log.debug(threadMessage("ANYTHING ???? requestline2 Text: " + requestLine2));
-							
-							
-							requestSocket.close();
-							cp.setConnectionPreference(false);
-						}
+						processRequest(requestSocket, cp);
 
 					} catch (SocketTimeoutException timeout ){
 						try {

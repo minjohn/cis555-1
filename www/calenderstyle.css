@@ -1,0 +1,45 @@
+
+table {
+	border: 2px solid;
+	border-collapse: collapse;
+	background-image: url("shards_pattern.jpg");
+	float: center;
+}
+
+table.center {
+	margin-left: auto;
+	margin-right: auto;
+}
+
+
+table th {
+	border: 2px solid;
+	border-collapse: collapse;
+	border-color: black;
+	color: blue;
+}
+
+td {
+	border: 2px solid;
+	width: 200px;
+	height: 100px;
+	max-width: 300px;
+	max-height: 300px;
+	font-weight: bold;
+	vertical-align: top;
+}
+
+td.weekend {
+	background-image: url("sun.png");
+	background-repeat: no-repeat;
+	background-size: 20px 20px;
+	background-position: right bottom;
+}
+
+td > ul {
+	font-weight: normal;
+}
+
+li.class {
+	color: red;
+}

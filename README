@@ -1,24 +1,38 @@
-Full name:  ______________
-SEAS login: ______________
+Full name:  Steven Hwang
+SEAS login: stevenhw
 
 Which features did you implement? 
   (list features, or write 'Entire assignment')
+  
+  Entire Assignment. Added one safety feature to prevent unwanted behavior outside of assignment:
+   - Socket timeouts: I noticed that it is possible to block a socket by connecting to telnet and not writing
+                      anything. For a thread pool of size 2 and two telnet sessions, I could DOS my server.
+                      With SocketTimeouts, I could alleviate this to a degree.
+   
+  
 
 Did you complete any extra-credit tasks? If so, which ones?
   (list extra-credit tasks)
+  None.
 
 Any special instructions for building and running your solution?
   (include detailed instructions, or write 'None')
 
+   Yes, my HTTP server uses some template HTML files in the resources folder when generating the html pages
+      for the control page. "resources/" should be included in the classpath when running or the correct
+      html page will not be displayed.
+
 Did you personally write _all_ the code you are submitting
 (other than code from the course web page)?
-  [ ] Yes
+  [X] Yes
   [ ] No
 
 Did you copy any code from the Internet, or from classmates?
-  [ ] Yes
+  [X] Yes 
+      - but only related to things like how to format the Date variables and sending bytes over a DataOutPutStream, 
+         nothing related to the HTTP Server itself. 
   [ ] No
 
 Did you collaborate with anyone on this assignment?
   [ ] Yes
-  [ ] No
+  [X] No

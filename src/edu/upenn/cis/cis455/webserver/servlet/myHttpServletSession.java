@@ -1,30 +1,57 @@
 package edu.upenn.cis.cis455.webserver.servlet;
 
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.Enumeration;
+import java.util.Locale;
 import java.util.Properties;
+import java.util.TimeZone;
+import java.util.UUID;
 
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpSessionContext;
 
 public class myHttpServletSession implements HttpSession {
-
+	
+	static SimpleDateFormat dateFormat = new SimpleDateFormat(
+	        "EEE dd MMM yyyy hh:mm:ss zzz", Locale.US);
+	
+	
+	UUID id;
+	Calendar calendar = Calendar.getInstance();
+	Date creationDate = null;
+	Date lastAccessed = null;
+    boolean persistentSession = false;
+    int inactiveInterval = 0; 
+    myServletContext context = null;
+    
+	
+	// public constructor
+	public myHttpServletSession(){
+		
+		// generate a unique uuid for the session as its identifier.
+		id = UUID.randomUUID();
+		
+		creationDate = calendar.getTime();
+	}
+	
+	
 	/* (non-Javadoc)
 	 * @see javax.servlet.http.HttpSession#getCreationTime()
 	 */
 	public long getCreationTime() {
-		// TODO Auto-generated method stub
-		return 0;
+		
+		return creationDate.getTime();
 	}
 
 	/* (non-Javadoc)
 	 * @see javax.servlet.http.HttpSession#getId()
 	 */
 	public String getId() {
-		// TODO Auto-generated method stub
 		
-		// Note: maybe get a UUID generated to use?
-		return null;
+		return id.toString();
 	}
 
 	/* (non-Javadoc)
@@ -32,7 +59,7 @@ public class myHttpServletSession implements HttpSession {
 	 */
 	public long getLastAccessedTime() {
 		// TODO Auto-generated method stub
-		return 0;
+		return lastAccessed.getTime();
 	}
 
 	/* (non-Javadoc)
@@ -46,9 +73,18 @@ public class myHttpServletSession implements HttpSession {
 	/* (non-Javadoc)
 	 * @see javax.servlet.http.HttpSession#setMaxInactiveInterval(int)
 	 */
-	public void setMaxInactiveInterval(int arg0) {
-		// TODO Auto-generated method stub
-
+	public void setMaxInactiveInterval(int interval) {
+		
+		// Specifies the time, in seconds, between client requests before the servlet container 
+		// will invalidate this session. A negative time indicates the session should never timeout.
+		
+		if(interval == -1){
+			persistentSession = true;
+		} 
+		else{
+			inactiveInterval = interval;
+		}
+		
 	}
 
 	/* (non-Javadoc)
@@ -56,7 +92,7 @@ public class myHttpServletSession implements HttpSession {
 	 */
 	public int getMaxInactiveInterval() {
 		// TODO Auto-generated method stub
-		return 0;
+		return inactiveInterval;
 	}
 
 	/* (non-Javadoc)
@@ -71,7 +107,6 @@ public class myHttpServletSession implements HttpSession {
 	 * @see javax.servlet.http.HttpSession#getAttribute(java.lang.String)
 	 */
 	public Object getAttribute(String arg0) {
-		// TODO Auto-generated method stub
 		return m_props.get(arg0);
 	}
 
@@ -79,7 +114,8 @@ public class myHttpServletSession implements HttpSession {
 	 * @see javax.servlet.http.HttpSession#getValue(java.lang.String)
 	 */
 	public Object getValue(String arg0) {
-		// TODO Auto-generated method stub
+		
+		
 		return m_props.get(arg0);
 	}
 
@@ -87,7 +123,7 @@ public class myHttpServletSession implements HttpSession {
 	 * @see javax.servlet.http.HttpSession#getAttributeNames()
 	 */
 	public Enumeration getAttributeNames() {
-		// TODO Auto-generated method stub
+
 		return m_props.keys();
 	}
 
@@ -95,7 +131,7 @@ public class myHttpServletSession implements HttpSession {
 	 * @see javax.servlet.http.HttpSession#getValueNames()
 	 */
 	public String[] getValueNames() {
-		// TODO Auto-generated method stub
+	
 		return null;
 	}
 
@@ -103,6 +139,7 @@ public class myHttpServletSession implements HttpSession {
 	 * @see javax.servlet.http.HttpSession#setAttribute(java.lang.String, java.lang.Object)
 	 */
 	public void setAttribute(String arg0, Object arg1) {
+		
 		m_props.put(arg0, arg1);
 	}
 
@@ -110,6 +147,7 @@ public class myHttpServletSession implements HttpSession {
 	 * @see javax.servlet.http.HttpSession#putValue(java.lang.String, java.lang.Object)
 	 */
 	public void putValue(String arg0, Object arg1) {
+		
 		m_props.put(arg0, arg1);
 	}
 
@@ -124,6 +162,7 @@ public class myHttpServletSession implements HttpSession {
 	 * @see javax.servlet.http.HttpSession#removeValue(java.lang.String)
 	 */
 	public void removeValue(String arg0) {
+		
 		m_props.remove(arg0);
 	}
 

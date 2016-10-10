@@ -35,8 +35,10 @@ import javax.servlet.http.HttpServlet;
 
 import org.apache.log4j.Logger;
 
+import com.sun.xml.internal.messaging.saaj.packaging.mime.Header;
+
 import edu.upenn.cis.cis455.webserver.myServer.ShutdownControl;
-import edu.upenn.cis.cis455.webserver.servlet.myHttpServlet;
+import edu.upenn.cis.cis455.webserver.servlet.myCookie;
 import edu.upenn.cis.cis455.webserver.servlet.myHttpServletRequest;
 import edu.upenn.cis.cis455.webserver.servlet.myHttpServletResponse;
 import edu.upenn.cis.cis455.webserver.servlet.myHttpServletSession;
@@ -156,7 +158,6 @@ public class workerThread extends Thread {
 		sessionMap = sessionMappings; 
 	}
 	
-	
 	// Check if the URI specified by the request string was a URI
 	private int checkifURL(String filename){
 		
@@ -170,22 +171,6 @@ public class workerThread extends Thread {
 		}
 		return 0;
 		
-	}
-	
-	//populate the request with parameters
-	private void populateParameters(myHttpServletRequest req, String resource){
-		
-		String[] strings = resource.split("\\?|&|=");
-		
-		if(strings.length >= 2 ){
-			for (int j = 1; j < strings.length - 1; j += 2) {
-				req.setParameter(strings[j], strings[j+1]);
-			}
-		}
-		else{
-			//no parameters... 
-			
-		}
 	}
 	
 	
@@ -324,156 +309,22 @@ public class workerThread extends Thread {
 	}
 
 	// Handle the get request
-	public void doGet( Socket clientSocket, BufferedReader reader, String[] requestParts, ConnectionPreference cp, myHttpServletSession session) throws ServletException, IOException{
+//	public void doGet( Socket clientSocket, BufferedReader reader, String[] requestParts, ConnectionPreference cp, myHttpServletSession session) throws ServletException, IOException{
 
 		
-		String filename = requestParts[1];
-		String httpVersion = requestParts[2];
-		
-		Map<String, List<String>> headers = new HashMap<String, List<String>>();
-
-		String nextLine;
-		
-		//log.debug(threadMessage("using Socket: " + clientSocket.toString()));
-		
-		synchronized(state){
-			state = "Handling " + filename;
-		}
-		
-		try {
-			nextLine = reader.readLine();
-			//log.debug(threadMessage("First line: " + nextLine));
-			boolean run = true;
-			boolean malformedHeader = false;
-			boolean multiLine = false;
-			String lastHeader = null; // for multiLine headers
-			while( nextLine != null && nextLine.compareTo("\n") != 0 && nextLine.compareTo("\r\n") != 0  ){
-			
-				// to skip the last new line character in the HTTPRequest ( Last line of HttpRequests
-				//   is a newline character, but BufferedReader will return the contents of the line without
-				//   the line-terminating characters (\n ,\r\n). Hence it will return an empty string?
-				if(!nextLine.isEmpty()){ 
-					
-					
-					//find the whitespace between header and value, if there is none, then its a malformed request
-	
-					int colon = nextLine.indexOf(':');	
-					if( colon == -1 &&  multiLine == false ){
-						
-						//ignore this header, malformed header
-					}
-					else if(colon == -1 &&  multiLine == true ){ // possible multiple line header 
-						
-						// add to the value array of header key
-						//log.debug(threadMessage("last header:" + lastHeader));
-						
-						String v = nextLine.trim();
-						
-						//log.debug(threadMessage("v: " + v));
-						
-						if(v.endsWith(",") == true){
-							
-							v = v.substring(0, v.length()-1);
-							//log.debug(threadMessage("without comma v: " + v));
-							multiLine = true;
-						}else{
-							multiLine = false;
-						}
-						
-						headers.get(lastHeader).add( v ); 
-					} 
-					else{ // this is a Single Line Header
-						
-						String header, value;
-
-						
-						header = nextLine.substring(0, colon).toLowerCase().trim(); // exclude the colon
-						value = nextLine.substring(colon+1, nextLine.length()).trim(); 
-
-						List<String> val = new ArrayList<String>();
-
-						if(value.endsWith(",")){ // this is a possible multiline multivalue header, handle the headless values above
-							multiLine = true;
-						}
-
-						if(header.compareTo("user-agent") != 0){ // one line comma separated multivalue header
-
-							for( String v : Arrays.asList(value.split(","))){
-								val.add(v.trim());
-							}
-						}
-						else{ // parse user-agent values specially because they can have comments in brackets (...)
-
-							int pos = 0;
-
-							//log.debug("parsing user-agent");
-
-							while( value != null ){
-
-								//log.debug("value: " + value);
-
-								// its a comment, add it to the previous user-agent info
-								if(value.startsWith("(")){
-
-									int endparen = value.indexOf(')');
-									if(endparen > 0){
-										log.debug("pos: " + pos);
-										int prev = pos-1;
-										log.debug("prev: " + prev);
-										if( prev >= 0){ //there is a valid user agent to apply comment to
-											val.set(prev, val.get(prev) + " " + value.substring(0, endparen+1) );
-										}
-									}
-
-									value = ( value.substring(endparen+1).trim() );
-									pos = pos-1; // since we move the potential element to the previous element 
-
-								}
-								else {
-									int nextSpace = value.indexOf(' ');
-									if(nextSpace < 0 ){ // last agent thing
-										val.add(value.trim());
-										value = null;
-									}
-									else{
-										val.add(value.substring(0, nextSpace));
-										value = value.substring(nextSpace).trim();
-									}
-
-								}
-								pos ++;
-							}
-
-						}
-
-
-						headers.put(header, val);
-
-						//log.debug(threadMessage("Header: " + header + 
-						//		"  |  Value: " + val.toString()));
-
-						lastHeader = header;
-					}
-					
-					nextLine = reader.readLine();
-					//log.debug(threadMessage("Next line: " + nextLine));
-				}
-				else{
-					nextLine = null; // trigger the termination condition
-				}
-			}
-			
-			log.debug(threadMessage("Out of while loop: "));
-			
-			
-//			if(malformedHeader == true){
-//				
-//				log.debug(" malformed Header");
-//				
+//		// check headers for HTTP 1.1 compliance
+//		boolean httpCompliant = false;
+//		
+//		log.debug("Checking if this is a HTTP 1.1 client");
+//		if( httpVersion.compareTo("HTTP/1.1") == 0){
+//			log.debug("This is a HTTP 1.1 client, checking compliance... (It must contain at least Host: header)");
+//			if(!headers.containsKey("host")){
+//
+//				log.debug(" 'Host:' header not found! this is not HTTP compliant");
 //				// Malformed request, send a 400 Bad Request.
 //				int code = 400;
 //				String mimeType = "text/html";
-//				String response = HttpResponseUtils.writeErrorResponse(code, httpVersion);
+//				String response = HttpResponseUtils.writeErrorResponse(code, httpVersion, false);
 //
 //				PrintWriter out;
 //				try {
@@ -482,744 +333,614 @@ public class workerThread extends Thread {
 //					out.write(response);
 //					out.flush();
 //
-//					out.close();
-//				} catch (IOException e) {
+//					//out.close();
+//				} 
+//				catch (SocketTimeoutException timeout ){
+//					try {
+//						clientSocket.close();
+//						cp.setConnectionPreference(false);
+//						return;
+//					} catch (IOException e1) {
+//						// TODO Auto-generated catch block
+//						e1.printStackTrace();
+//					}
+//				}
+//				catch (IOException e) {
 //					// TODO Auto-generated catch block
 //					e.printStackTrace();
 //				}				
+//
 //			}
-			
-			for( String key : headers.keySet()){
-				
-				log.debug("key : " + key + ": " + headers.get(key).toString());
-				
-				
-			}
-			
-			
-		} catch (SocketTimeoutException timeout ){
-			try {
-				clientSocket.close();
-				cp.setConnectionPreference(false);
-				return;
-			} catch (IOException e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}
-		}catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			synchronized(state){
-				state = "ERROR in reading Headers";
-			}
-		}
-
-		/** Http Servlet code here  **/
-		
-		myHttpServletRequest req = new myHttpServletRequest(session);
-		myHttpServletResponse res = new myHttpServletResponse();
-		
-		// Fill in the Method, parameters?, and headers
-		req.setMethod(requestParts[0]);
-		req.setProtocol(httpVersion);
-		
-		for( String key : headers.keySet()){
-			req.setHeader(key, headers.get(key));	
-		}
-		
-		// If any parameters are provided as a part of the HTTP request add them the request object 
-		populateParameters(req, filename);
-		
-		
-		int isUrl;
-		if( (isUrl = checkifURL(filename)) > 0 ){
-			log.debug(threadMessage("filename is an absolute URL, parsing " ));
-			String resource = parseURLforResource(filename, isUrl);
-			
-			filename = resource;
-			
-		}
-		
-		
-		// Check if the resource requested is a servlet
-		int question = filename.indexOf('?');
-		String servletName; 
-		
-		if(question != -1){
-			servletName = filename.substring(0, filename.indexOf('?'));
-		}else{
-			servletName = filename;
-		}
-		
-		List<String> urls = new ArrayList<String>(servletURLMap.values());
-		Collections.sort( urls, new StringComparator());
-		
-		String sname = null;
-		for( String pattern  : urls  ){
-			
-			if( filename.startsWith(pattern) ){ // longest match should be caught first
-				for( String key : servletURLMap.keySet() ){
-					if( pattern.equals(servletURLMap.get(key)) ){
-						sname = key;
-					}
-				}
-				
-				break;
-			}
-			
-		}
-		
-		if( sname == null  ){ //no servlet found
-			
-			servletName = "default";
-			
-		}else{
-			servletName = sname;
-		}
-		
-		HttpServlet servlet = servletMap.get(servletName);
-		
-		if(servlet == null){
-			// servlet not found error
-		}
-		else{
-			servlet.service(req, res);
-		}
-		
-		/***End Servlet Code here***/
-		
-		
-		
-		
-		// check headers for HTTP 1.1 compliance
-		boolean httpCompliant = false;
-		
-		log.debug("Checking if this is a HTTP 1.1 client");
-		if( httpVersion.compareTo("HTTP/1.1") == 0){
-			log.debug("This is a HTTP 1.1 client, checking compliance... (It must contain at least Host: header)");
-			if(!headers.containsKey("host")){
-
-				log.debug(" 'Host:' header not found! this is not HTTP compliant");
-				// Malformed request, send a 400 Bad Request.
-				int code = 400;
-				String mimeType = "text/html";
-				String response = HttpResponseUtils.writeErrorResponse(code, httpVersion, false);
-
-				PrintWriter out;
-				try {
-					out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-					out.write(response);
-					out.flush();
-
-					//out.close();
-				} 
-				catch (SocketTimeoutException timeout ){
-					try {
-						clientSocket.close();
-						cp.setConnectionPreference(false);
-						return;
-					} catch (IOException e1) {
-						// TODO Auto-generated catch block
-						e1.printStackTrace();
-					}
-				}
-				catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}				
-
-			}
-			else{
-				log.debug(" 'Host:' header found ==> HTTP compliant");
-				httpCompliant = true;
-			}
-		}else{ // HTTP 1.0 doesn't require Headers
-			log.debug(" HTTP/1.0 No 'Host:' header required ==> HTTP 1.0 compliant");
-			httpCompliant = true;
-		}
-
-
-		if(httpCompliant == true){
-			try {
-				// Write response (headers and body) for single response
-				//if single file... (assuming we validate path and figure out if it exists prior to this...)
-
-				File f;
-				boolean isDirectory = false;
-				boolean isControl = false;
-				boolean expectContinue = false;
-
-				String mimeType = "text/html";
-
-				
-				// check for the 100 Continue header
-				if(headers.containsKey("expect") ){
-					
-					log.debug("checking expect: header value");
-					for(String expects : headers.get("expect")){
-						if(expects.toLowerCase().compareTo("100-continue") == 0 
-								&& httpVersion.compareTo("HTTP/1.0") != 0){
-							expectContinue = true;
-						}
-					}
-					
-				}
-				
-				
-				// check for the 'Connection: ' header value
-				
-				if(headers.containsKey("connection")){
-					
-					log.debug("checking the value for Connection: header value");
-					
-					for(String connectionAlive : headers.get("connection")){
-						if(connectionAlive.toLowerCase().compareTo("close") == 0){
-							log.debug("Connection: header is close");
-							cp.setConnectionPreference(false);
-						}
-					}
-
-				}
-				else{ // no connection header value defaults to single request then connection close
-					log.debug("No Connection: header  DEFAULTING to close");
-					cp.setConnectionPreference(false);
-				}
-				
-				log.debug("Connection preference currently set to: " + ( cp.getConnectionPreference() == true ? "keep-alive" : "close" ));
-				
-				
-
-				log.debug(threadMessage("filename requested: " + filename));
-
-
-				// default webpage
-				int http;
-				if( (http = checkifURL(filename)) > 0 ){
-					log.debug(threadMessage("filename is an absolute URL, parsing " ));
-					String resource = parseURLforResource(filename, http);
-					
-					filename = resource;
-					
-				}
-				
-				
-				f = new File(root+"/"+filename);
-				
-				
-				if(filename.compareTo("/") == 0){
-					//filename = "index.html";
-					String explicitPath = root;  
-					log.debug(threadMessage("Requested " + explicitPath));
-					isDirectory = true;
-					
-				}
-				
-				//special control URLs
-				else if ( filename.compareTo("/shutdown") == 0 ){
-					// in case server is propogating shutdown and we are changing it too, doesn't matter
-					//   b/c it is idempotent.
-
-					personalShutdownFlag = true; // volatile boolean
-
-					log.debug(threadMessage("Requested /SHUTDOWN"));
-					
-				}
-				else if ( filename.compareTo("/control") == 0 ){
-					log.debug(threadMessage("Requested /CONTROL"));
-					isControl = true;
-					
-				}
-				// its a directory
-				else if ( f.isDirectory() == true ){
-					// generate the list of files in the directory
-					log.debug(threadMessage("Requested a directory!"));
-					
-					isDirectory = true;
-				}
-				// its a single file.
-				else {
-					log.debug(threadMessage("Requested a file!"));
-					
-				}
-
-				int code = 0;
-				String body = "";
-				String response = "";
-
-
-
-
-				if( personalShutdownFlag == true ){ // we got a shutdown requested
-
-					code = 200;
-					mimeType = "text/html";
-					response = HttpResponseUtils.writeResponseHeaders(code, httpVersion, false);
-
-					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-					//Check for 100 Continue flag
-					if( expectContinue == true ){
-						String continueResponse = HttpResponseUtils.getContinueResponse();
-						out.write(continueResponse);
-					}
-					out.write(response);
-					out.flush();
-
-					//out.close();
-
-				}
-
-				else if(isControl){  // Return the control page
-					String controlPage = getControlPageText();
-					
-					File controlFile = new File("resources/controlpage.html");
-
-					code = 200;
-					mimeType = "text/html";
-					response = HttpResponseUtils.writeResponseHeaders(code, mimeType, controlPage, httpVersion, controlFile.lastModified(), cp.getConnectionPreference());
-
-					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-					//Check for 100 Continue flag
-					if( expectContinue == true ){
-						String continueResponse = HttpResponseUtils.getContinueResponse();
-						out.write(continueResponse);
-					}
-					out.write(response);
-					out.flush();
-
-					//out.close();
-
-				}
-
-				else if(!f.exists() ){ // check if file exists
-
-					// respond with 404 file not found
-					code = 404;
-					log.debug(threadMessage("ERROR - File does not exist!"));
-					response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
-					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-					out.write(response);
-					out.flush();
-
-					//out.close();
-
-				}
-				
-				else{ // file or directory exists
-					
-					if(!f.canRead()){ //check if file is readable
-						
-						// respond with 403 file permission denied
-						code = 403;
-						log.debug(threadMessage("ERROR - File access denied!"));
-						response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
-						PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-						out.write(response);
-						out.flush();
-
-						//out.close();
-					}
-					else { // file is readable
-
-						log.debug(threadMessage("File or directory exists!"));
-
-						// validate the path...
-
-						Path pathString =  Paths.get(root+"/"+filename).toRealPath();
-
-						log.debug("Validating path:   "+ pathString.toString());
-
-						boolean validPath = validatePath(pathString);
-
-						if( validPath == false ){
-
-							code = 403;
-							log.debug(threadMessage("ERROR - File access forbidden!"));
-							response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
-							PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-							out.write(response);
-							out.flush();
-
-							//out.close();
-
-
-						}
-						else { // it is a valid path
-
-							// check if the request provided the modified/unmodified-Since flag
-							boolean modifiedSinceHeader = false;
-							boolean unmodifiedSinceHeader = false;
-
-							boolean preconditionMet = true;
-
-							if(headers.containsKey("if-modified-since") && headers.containsKey("if-unmodified-since")){
-
-								//error.... It does not make sense to have both headers.
-
-								log.debug(" 'Host:' header not found! this is not HTTP compliant");
-								// Malformed request, send a 400 Bad Request.
-								code = 400;
-								mimeType = "text/html";
-								response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-								PrintWriter out;
-								try {
-									out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-									out.write(response);
-									out.flush();
-
-									//out.close();
-								} catch (SocketTimeoutException timeout ){
-									try {
-										clientSocket.close();
-										cp.setConnectionPreference(false);
-										return;
-									} catch (IOException e1) {
-										// TODO Auto-generated catch block
-										e1.printStackTrace();
-									}
-								}catch (IOException e) {
-									// TODO Auto-generated catch block
-									e.printStackTrace();
-								}				
-
-							}
-							else if(headers.containsKey("if-modified-since")){
-								modifiedSinceHeader = true;	
-							}
-							else if(headers.containsKey("if-unmodified-since")){
-								unmodifiedSinceHeader = true;
-							}
-
-							Date lastModified = new Date(f.lastModified());
-
-							if(modifiedSinceHeader ){
-
-								log.debug(threadMessage("checking if the file was modified since certain date"));
-
-								Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-modified-since").get(0));
-
-								if(headerModified == null ){ // ignore the malformed header
-									preconditionMet = true;
-								}
-								else if( lastModified.before( headerModified ) || lastModified.equals( headerModified )){
-									if(headerModified != null){
-										log.debug(" File had not been modified since: "+ headerModified.toString());
-									}
-									// Malformed request, send a 400 Bad Request.
-									code = 412;
-									mimeType = "text/html";
-									response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-									PrintWriter out;
-									try {
-										out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-										out.write(response);
-										out.flush();
-
-										//out.close();
-									} catch (SocketTimeoutException timeout ){
-										try {
-											clientSocket.close();
-											cp.setConnectionPreference(false);
-											return;
-										} catch (IOException e1) {
-											// TODO Auto-generated catch block
-											e1.printStackTrace();
-										}
-									}catch (IOException e) {
-										// TODO Auto-generated catch block
-										e.printStackTrace();
-									}		
-
-									preconditionMet = false;
-
-								}
-
-							}
-							else if (unmodifiedSinceHeader ){
-
-								log.debug(threadMessage("checking if the file was modified since certain date"));
-
-								Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-unmodified-since").get(0));
-
-								if(headerModified == null){ // ignore the malformed data
-									log.debug(threadMessage("Error Parsing date, ignoring the header"));
-									preconditionMet = true;
-								}
-
-								else if( lastModified.after( headerModified )){
-
-									log.debug(" File had not been unmodified since: "+ headerModified.toString());
-									// Malformed request, send a 400 Bad Request.
-									code = 412;
-									mimeType = "text/html";
-									response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-									PrintWriter out;
-									try {
-										out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-										out.write(response);
-										out.flush();
-
-										//out.close();
-									} catch (SocketTimeoutException timeout ){
-										try {
-											clientSocket.close();
-											cp.setConnectionPreference(false);
-											return;
-										} catch (IOException e1) {
-											// TODO Auto-generated catch block
-											e1.printStackTrace();
-										}
-									}catch (IOException e) {
-										// TODO Auto-generated catch block
-										e.printStackTrace();
-									}		
-
-									preconditionMet = false;
-
-								}
-							}
-
-							// either the If-Unmodified/Modified-Since headers were not included or the precondition was met
-							//    either one.
-							if(preconditionMet == true){ 
-								
-								if(isDirectory){
-									log.debug(threadMessage("Got a directory request"));
-									StringBuffer directoryContents = new StringBuffer();
-									StringBuffer fileContents = new StringBuffer();
-
-									// generate html page of the files in directory....
-
-									File directoryPage = new File("resources/directory.html");
-
-									BufferedReader directoryReader = new BufferedReader(new FileReader(directoryPage));
-
-									String line;
-
-									while((line = directoryReader.readLine()) != null){
-										directoryContents.append(line);
-									}
-
-
-									File[] listofFiles = f.listFiles();
-
-									for(File file : listofFiles){
-
-										if (file.isFile()) {
-											fileContents.append("<p> - " + file.getName()+"</p>");
-										} else if (file.isDirectory()) {
-											fileContents.append("<p style=\"font-weight:bold\"> - " + file.getName() +"/</p>");
-										}
-
-									}
-
-									String directory = directoryContents.toString();
-									directory = directory.replace("<!-- Include files HERE -->", fileContents.toString());
-									directory = directory.replace("<!-- Directory Name -->", f.getName()+"/");
-
-									// set the code 
-									code = 200;
-									body = directory.toString();
-									mimeType = "text/html";
-
-									response = HttpResponseUtils.writeResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
-
-									PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-									//Check for 100 Continue flag
-									if( expectContinue == true ){
-										String continueResponse = HttpResponseUtils.getContinueResponse();
-										out.write(continueResponse);
-									}
-
-
-									out.write(response);
-									out.flush();
-
-									//out.close();
-
-								}
-
-								else{
-									mimeType = getMimeType(filename);
-									
-									if(mimeType == null && f.isFile() == false ){
-										//unsupported file type 415
-										code = 415;
-
-										// generate the html here...
-										response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
-
-										PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-										out.write(response);
-										out.flush();
-
-										//out.close();
-										
-									}
-									else if(mimeType == null && f.isFile() == true ){ // Unsupported Media Type
-										log.debug(threadMessage("file type unknown: "));
-										
-										
-										code = 200;
-										mimeType = "application/octet-stream";
-										
-										Path path = FileSystems.getDefault().getPath(root, filename);
-										BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
-										// re-use image byte stream headers to send data 
-										response = HttpResponseUtils.writeImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
-
-										PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-										//Check for 100 Continue flag
-										if( expectContinue == true ){
-											String continueResponse = HttpResponseUtils.getContinueResponse();
-											outHeaders.write(continueResponse);
-										}
-
-										outHeaders.write(response);
-										outHeaders.flush();
-
-										FileInputStream fileInputStm = new FileInputStream(f);
-										DataOutputStream  dataOutputStm = new DataOutputStream(clientSocket.getOutputStream());
-
-										try {
-											sendBinaryData(fileInputStm, dataOutputStm);
-										} catch (SocketTimeoutException timeout ){
-											try {
-												clientSocket.close();
-												cp.setConnectionPreference(false);
-												return;
-											} catch (IOException e1) {
-												// TODO Auto-generated catch block
-												e1.printStackTrace();
-											}
-										}catch (Exception e) {
-											// TODO Auto-generated catch block
-											e.printStackTrace();
-											synchronized(state){
-												state = "ERROR in sending Binary Data";
-											}
-										}
-
-										//fileInputStm.close();
-										//dataOutputStm.close();
-										//outHeaders.close();
-										
-									}
-									else if ( mimeType.substring(0, mimeType.indexOf("/")).compareTo("image") == 0 ){ // its an image
-										log.debug(threadMessage("Got image file type: "+mimeType));
-
-										//set the code
-										code = 200;
-										
-										Path path = FileSystems.getDefault().getPath(root, filename);
-										BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
-										response = HttpResponseUtils.writeImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
-
-										PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-										//Check for 100 Continue flag
-										if( expectContinue == true ){
-											String continueResponse = HttpResponseUtils.getContinueResponse();
-											outHeaders.write(continueResponse);
-										}
-
-										outHeaders.write(response);
-										outHeaders.flush();
-
-										FileInputStream fileInputStm = new FileInputStream(f);
-										DataOutputStream  dataOutputStm = new DataOutputStream(clientSocket.getOutputStream());
-
-										try {
-											sendBinaryData(fileInputStm, dataOutputStm);
-										} catch (SocketTimeoutException timeout ){
-											try {
-												clientSocket.close();
-												cp.setConnectionPreference(false);
-												return;
-											} catch (IOException e1) {
-												// TODO Auto-generated catch block
-												e1.printStackTrace();
-											}
-										}catch (Exception e) {
-											// TODO Auto-generated catch block
-											e.printStackTrace();
-											synchronized(state){
-												state = "ERROR in sending Binary Data";
-											}
-										}
-
-//										fileInputStm.close();
-//										dataOutputStm.close();
-//										outHeaders.close();
-
-									}else { // its text file
-
-										log.debug(threadMessage("Got text file type: "+mimeType));
-
-										BufferedReader filereader = new BufferedReader(new FileReader(f));
-
-										StringBuffer contents = new StringBuffer();
-										String line;
-										while( (line = filereader.readLine()) != null ){
-											contents.append(line);
-										}
-
-										log.debug(threadMessage("file contents: " + contents.toString()));
-
-										//set the code
-										code = 200;
-										body = contents.toString();
-
-										response = HttpResponseUtils.writeResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
-
-										PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-
-										//Check for 100 Continue flag
-										if( expectContinue == true ){
-											String continueResponse = HttpResponseUtils.getContinueResponse();
-											out.write(continueResponse);
-										}
-
-										out.write(response);
-										out.flush();
-
-										//out.close();
-									}
-								}
-
-							}
-						}
-					}
-				}
-				//clientSocket.close();
-
-			} catch (SocketTimeoutException timeout ){
-				try {
-					clientSocket.close();
-					cp.setConnectionPreference(false);
-					return;
-				} catch (IOException e1) {
-					// TODO Auto-generated catch block
-					e1.printStackTrace();
-				}
-			}catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-				synchronized(state){
-					state = "ERROR in retreiving File";
-				}
-			}
-
-		}
-	}
+//			else{
+//				log.debug(" 'Host:' header found ==> HTTP compliant");
+//				httpCompliant = true;
+//			}
+//		}else{ // HTTP 1.0 doesn't require Headers
+//			log.debug(" HTTP/1.0 No 'Host:' header required ==> HTTP 1.0 compliant");
+//			httpCompliant = true;
+//		}
+//
+//
+//		if(httpCompliant == true){
+//			try {
+//				// Write response (headers and body) for single response
+//				//if single file... (assuming we validate path and figure out if it exists prior to this...)
+//
+//				File f;
+//				boolean isDirectory = false;
+//				boolean isControl = false;
+//				boolean expectContinue = false;
+//
+//				String mimeType = "text/html";
+//
+//				
+//				// check for the 100 Continue header
+//				if(headers.containsKey("expect") ){
+//					
+//					log.debug("checking expect: header value");
+//					for(String expects : headers.get("expect")){
+//						if(expects.toLowerCase().compareTo("100-continue") == 0 
+//								&& httpVersion.compareTo("HTTP/1.0") != 0){
+//							expectContinue = true;
+//						}
+//					}
+//					
+//				}
+//				
+//				
+//				// check for the 'Connection: ' header value
+//				
+//				if(headers.containsKey("connection")){
+//					
+//					log.debug("checking the value for Connection: header value");
+//					
+//					for(String connectionAlive : headers.get("connection")){
+//						if(connectionAlive.toLowerCase().compareTo("close") == 0){
+//							log.debug("Connection: header is close");
+//							cp.setConnectionPreference(false);
+//						}
+//					}
+//
+//				}
+//				else{ // no connection header value defaults to single request then connection close
+//					log.debug("No Connection: header  DEFAULTING to close");
+//					cp.setConnectionPreference(false);
+//				}
+//				
+//				log.debug("Connection preference currently set to: " + ( cp.getConnectionPreference() == true ? "keep-alive" : "close" ));
+//				
+//				
+//
+//				log.debug(threadMessage("filename requested: " + filename));
+//
+//
+//				// default webpage
+//				int http;
+//				if( (http = checkifURL(filename)) > 0 ){
+//					log.debug(threadMessage("filename is an absolute URL, parsing " ));
+//					String resource = parseURLforResource(filename, http);
+//					
+//					filename = resource;
+//					
+//				}
+//				
+//				
+//				f = new File(root+"/"+filename);
+//				
+//				
+//				if(filename.compareTo("/") == 0){
+//					//filename = "index.html";
+//					String explicitPath = root;  
+//					log.debug(threadMessage("Requested " + explicitPath));
+//					isDirectory = true;
+//					
+//				}
+//				
+//				//special control URLs
+//				else if ( filename.compareTo("/shutdown") == 0 ){
+//					// in case server is propogating shutdown and we are changing it too, doesn't matter
+//					//   b/c it is idempotent.
+//
+//					personalShutdownFlag = true; // volatile boolean
+//
+//					log.debug(threadMessage("Requested /SHUTDOWN"));
+//					
+//				}
+//				else if ( filename.compareTo("/control") == 0 ){
+//					log.debug(threadMessage("Requested /CONTROL"));
+//					isControl = true;
+//					
+//				}
+//				// its a directory
+//				else if ( f.isDirectory() == true ){
+//					// generate the list of files in the directory
+//					log.debug(threadMessage("Requested a directory!"));
+//					
+//					isDirectory = true;
+//				}
+//				// its a single file.
+//				else {
+//					log.debug(threadMessage("Requested a file!"));
+//					
+//				}
+//
+//				int code = 0;
+//				String body = "";
+//				String response = "";
+//
+//
+//
+//
+//				if( personalShutdownFlag == true ){ // we got a shutdown requested
+//
+//					code = 200;
+//					mimeType = "text/html";
+//					response = HttpResponseUtils.writeResponseHeaders(code, httpVersion, false);
+//
+//					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//					//Check for 100 Continue flag
+//					if( expectContinue == true ){
+//						String continueResponse = HttpResponseUtils.getContinueResponse();
+//						out.write(continueResponse);
+//					}
+//					out.write(response);
+//					out.flush();
+//
+//					//out.close();
+//
+//				}
+//
+//				else if(isControl){  // Return the control page
+//					String controlPage = getControlPageText();
+//					
+//					File controlFile = new File("resources/controlpage.html");
+//
+//					code = 200;
+//					mimeType = "text/html";
+//					response = HttpResponseUtils.writeResponseHeaders(code, mimeType, controlPage, httpVersion, controlFile.lastModified(), cp.getConnectionPreference());
+//
+//					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//					//Check for 100 Continue flag
+//					if( expectContinue == true ){
+//						String continueResponse = HttpResponseUtils.getContinueResponse();
+//						out.write(continueResponse);
+//					}
+//					out.write(response);
+//					out.flush();
+//
+//					//out.close();
+//
+//				}
+//
+//				else if(!f.exists() ){ // check if file exists
+//
+//					// respond with 404 file not found
+//					code = 404;
+//					log.debug(threadMessage("ERROR - File does not exist!"));
+//					response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+//					PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//					out.write(response);
+//					out.flush();
+//
+//					//out.close();
+//
+//				}
+//				
+//				else{ // file or directory exists
+//					
+//					if(!f.canRead()){ //check if file is readable
+//						
+//						// respond with 403 file permission denied
+//						code = 403;
+//						log.debug(threadMessage("ERROR - File access denied!"));
+//						response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+//						PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//						out.write(response);
+//						out.flush();
+//
+//						//out.close();
+//					}
+//					else { // file is readable
+//
+//						log.debug(threadMessage("File or directory exists!"));
+//
+//						// validate the path...
+//
+//						Path pathString =  Paths.get(root+"/"+filename).toRealPath();
+//
+//						log.debug("Validating path:   "+ pathString.toString());
+//
+//						boolean validPath = validatePath(pathString);
+//
+//						if( validPath == false ){
+//
+//							code = 403;
+//							log.debug(threadMessage("ERROR - File access forbidden!"));
+//							response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+//							PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//							out.write(response);
+//							out.flush();
+//
+//							//out.close();
+//
+//
+//						}
+//						else { // it is a valid path
+//
+//							// check if the request provided the modified/unmodified-Since flag
+//							boolean modifiedSinceHeader = false;
+//							boolean unmodifiedSinceHeader = false;
+//
+//							boolean preconditionMet = true;
+//
+//							if(headers.containsKey("if-modified-since") && headers.containsKey("if-unmodified-since")){
+//
+//								//error.... It does not make sense to have both headers.
+//
+//								log.debug(" 'Host:' header not found! this is not HTTP compliant");
+//								// Malformed request, send a 400 Bad Request.
+//								code = 400;
+//								mimeType = "text/html";
+//								response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+//
+//								PrintWriter out;
+//								try {
+//									out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//
+//									out.write(response);
+//									out.flush();
+//
+//									//out.close();
+//								} catch (SocketTimeoutException timeout ){
+//									try {
+//										clientSocket.close();
+//										cp.setConnectionPreference(false);
+//										return;
+//									} catch (IOException e1) {
+//										// TODO Auto-generated catch block
+//										e1.printStackTrace();
+//									}
+//								}catch (IOException e) {
+//									// TODO Auto-generated catch block
+//									e.printStackTrace();
+//								}				
+//
+//							}
+//							else if(headers.containsKey("if-modified-since")){
+//								modifiedSinceHeader = true;	
+//							}
+//							else if(headers.containsKey("if-unmodified-since")){
+//								unmodifiedSinceHeader = true;
+//							}
+//
+//							Date lastModified = new Date(f.lastModified());
+//
+//							if(modifiedSinceHeader ){
+//
+//								log.debug(threadMessage("checking if the file was modified since certain date"));
+//
+//								Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-modified-since").get(0));
+//
+//								if(headerModified == null ){ // ignore the malformed header
+//									preconditionMet = true;
+//								}
+//								else if( lastModified.before( headerModified ) || lastModified.equals( headerModified )){
+//									if(headerModified != null){
+//										log.debug(" File had not been modified since: "+ headerModified.toString());
+//									}
+//									// Malformed request, send a 400 Bad Request.
+//									code = 412;
+//									mimeType = "text/html";
+//									response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+//
+//									PrintWriter out;
+//									try {
+//										out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//
+//										out.write(response);
+//										out.flush();
+//
+//										//out.close();
+//									} catch (SocketTimeoutException timeout ){
+//										try {
+//											clientSocket.close();
+//											cp.setConnectionPreference(false);
+//											return;
+//										} catch (IOException e1) {
+//											// TODO Auto-generated catch block
+//											e1.printStackTrace();
+//										}
+//									}catch (IOException e) {
+//										// TODO Auto-generated catch block
+//										e.printStackTrace();
+//									}		
+//
+//									preconditionMet = false;
+//
+//								}
+//
+//							}
+//							else if (unmodifiedSinceHeader ){
+//
+//								log.debug(threadMessage("checking if the file was modified since certain date"));
+//
+//								Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-unmodified-since").get(0));
+//
+//								if(headerModified == null){ // ignore the malformed data
+//									log.debug(threadMessage("Error Parsing date, ignoring the header"));
+//									preconditionMet = true;
+//								}
+//
+//								else if( lastModified.after( headerModified )){
+//
+//									log.debug(" File had not been unmodified since: "+ headerModified.toString());
+//									// Malformed request, send a 400 Bad Request.
+//									code = 412;
+//									mimeType = "text/html";
+//									response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+//
+//									PrintWriter out;
+//									try {
+//										out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//
+//										out.write(response);
+//										out.flush();
+//
+//										//out.close();
+//									} catch (SocketTimeoutException timeout ){
+//										try {
+//											clientSocket.close();
+//											cp.setConnectionPreference(false);
+//											return;
+//										} catch (IOException e1) {
+//											// TODO Auto-generated catch block
+//											e1.printStackTrace();
+//										}
+//									}catch (IOException e) {
+//										// TODO Auto-generated catch block
+//										e.printStackTrace();
+//									}		
+//
+//									preconditionMet = false;
+//
+//								}
+//							}
+//
+//							// either the If-Unmodified/Modified-Since headers were not included or the precondition was met
+//							//    either one.
+//							if(preconditionMet == true){ 
+//								
+//								if(isDirectory){
+//									log.debug(threadMessage("Got a directory request"));
+//									StringBuffer directoryContents = new StringBuffer();
+//									StringBuffer fileContents = new StringBuffer();
+//
+//									// generate html page of the files in directory....
+//
+//									File directoryPage = new File("resources/directory.html");
+//
+//									BufferedReader directoryReader = new BufferedReader(new FileReader(directoryPage));
+//
+//									String line;
+//
+//									while((line = directoryReader.readLine()) != null){
+//										directoryContents.append(line);
+//									}
+//
+//
+//									File[] listofFiles = f.listFiles();
+//
+//									for(File file : listofFiles){
+//
+//										if (file.isFile()) {
+//											fileContents.append("<p> - " + file.getName()+"</p>");
+//										} else if (file.isDirectory()) {
+//											fileContents.append("<p style=\"font-weight:bold\"> - " + file.getName() +"/</p>");
+//										}
+//
+//									}
+//
+//									String directory = directoryContents.toString();
+//									directory = directory.replace("<!-- Include files HERE -->", fileContents.toString());
+//									directory = directory.replace("<!-- Directory Name -->", f.getName()+"/");
+//
+//									// set the code 
+//									code = 200;
+//									body = directory.toString();
+//									mimeType = "text/html";
+//
+//									response = HttpResponseUtils.writeResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
+//
+//									PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//
+//									//Check for 100 Continue flag
+//									if( expectContinue == true ){
+//										String continueResponse = HttpResponseUtils.getContinueResponse();
+//										out.write(continueResponse);
+//									}
+//
+//
+//									out.write(response);
+//									out.flush();
+//
+//									//out.close();
+//
+//								}
+//
+//								else{
+//									mimeType = getMimeType(filename);
+//									
+//									if(mimeType == null && f.isFile() == false ){
+//										//unsupported file type 415
+//										code = 415;
+//
+//										// generate the html here...
+//										response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+//
+//										PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//										out.write(response);
+//										out.flush();
+//
+//										//out.close();
+//										
+//									}
+//									else if(mimeType == null && f.isFile() == true ){ // Unsupported Media Type
+//										log.debug(threadMessage("file type unknown: "));
+//										
+//										
+//										code = 200;
+//										mimeType = "application/octet-stream";
+//										
+//										Path path = FileSystems.getDefault().getPath(root, filename);
+//										BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
+//										// re-use image byte stream headers to send data 
+//										response = HttpResponseUtils.writeImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
+//
+//										PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//
+//										//Check for 100 Continue flag
+//										if( expectContinue == true ){
+//											String continueResponse = HttpResponseUtils.getContinueResponse();
+//											outHeaders.write(continueResponse);
+//										}
+//
+//										outHeaders.write(response);
+//										outHeaders.flush();
+//
+//										FileInputStream fileInputStm = new FileInputStream(f);
+//										DataOutputStream  dataOutputStm = new DataOutputStream(clientSocket.getOutputStream());
+//
+//										try {
+//											sendBinaryData(fileInputStm, dataOutputStm);
+//										} catch (SocketTimeoutException timeout ){
+//											try {
+//												clientSocket.close();
+//												cp.setConnectionPreference(false);
+//												return;
+//											} catch (IOException e1) {
+//												// TODO Auto-generated catch block
+//												e1.printStackTrace();
+//											}
+//										}catch (Exception e) {
+//											// TODO Auto-generated catch block
+//											e.printStackTrace();
+//											synchronized(state){
+//												state = "ERROR in sending Binary Data";
+//											}
+//										}
+//
+//										//fileInputStm.close();
+//										//dataOutputStm.close();
+//										//outHeaders.close();
+//										
+//									}
+//									else if ( mimeType.substring(0, mimeType.indexOf("/")).compareTo("image") == 0 ){ // its an image
+//										log.debug(threadMessage("Got image file type: "+mimeType));
+//
+//										//set the code
+//										code = 200;
+//										
+//										Path path = FileSystems.getDefault().getPath(root, filename);
+//										BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
+//										response = HttpResponseUtils.writeImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
+//
+//										PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//
+//										//Check for 100 Continue flag
+//										if( expectContinue == true ){
+//											String continueResponse = HttpResponseUtils.getContinueResponse();
+//											outHeaders.write(continueResponse);
+//										}
+//
+//										outHeaders.write(response);
+//										outHeaders.flush();
+//
+//										FileInputStream fileInputStm = new FileInputStream(f);
+//										DataOutputStream  dataOutputStm = new DataOutputStream(clientSocket.getOutputStream());
+//
+//										try {
+//											sendBinaryData(fileInputStm, dataOutputStm);
+//										} catch (SocketTimeoutException timeout ){
+//											try {
+//												clientSocket.close();
+//												cp.setConnectionPreference(false);
+//												return;
+//											} catch (IOException e1) {
+//												// TODO Auto-generated catch block
+//												e1.printStackTrace();
+//											}
+//										}catch (Exception e) {
+//											// TODO Auto-generated catch block
+//											e.printStackTrace();
+//											synchronized(state){
+//												state = "ERROR in sending Binary Data";
+//											}
+//										}
+//
+////										fileInputStm.close();
+////										dataOutputStm.close();
+////										outHeaders.close();
+//
+//									}else { // its text file
+//
+//										log.debug(threadMessage("Got text file type: "+mimeType));
+//
+//										BufferedReader filereader = new BufferedReader(new FileReader(f));
+//
+//										StringBuffer contents = new StringBuffer();
+//										String line;
+//										while( (line = filereader.readLine()) != null ){
+//											contents.append(line);
+//										}
+//
+//										log.debug(threadMessage("file contents: " + contents.toString()));
+//
+//										//set the code
+//										code = 200;
+//										body = contents.toString();
+//
+//										response = HttpResponseUtils.writeResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
+//
+//										PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+//
+//										//Check for 100 Continue flag
+//										if( expectContinue == true ){
+//											String continueResponse = HttpResponseUtils.getContinueResponse();
+//											out.write(continueResponse);
+//										}
+//
+//										out.write(response);
+//										out.flush();
+//
+//										//out.close();
+//									}
+//								}
+//
+//							}
+//						}
+//					}
+//				}
+//				//clientSocket.close();
+//
+//			} catch (SocketTimeoutException timeout ){
+//				try {
+//					clientSocket.close();
+//					cp.setConnectionPreference(false);
+//					return;
+//				} catch (IOException e1) {
+//					// TODO Auto-generated catch block
+//					e1.printStackTrace();
+//				}
+//			}catch (IOException e) {
+//				// TODO Auto-generated catch block
+//				e.printStackTrace();
+//				synchronized(state){
+//					state = "ERROR in retreiving File";
+//				}
+//			}
+//
+//		}
+//	}
 
 		
 	
@@ -1232,310 +953,794 @@ public class workerThread extends Thread {
 			throws SocketTimeoutException, IOException, ServletException
 	{
 		
+		HttpRequestParser parser = new HttpRequestParser();
 		
-		BufferedReader reader = new BufferedReader(new InputStreamReader(requestSocket.getInputStream()));
+		parser.setServletMaps(servletMap, servletURLMap, sessionMap );
 		
-		String requestLine = reader.readLine();
-		String filename = null ;
-		String httpVersion = null;
-		String method = null;
-
-		log.debug(threadMessage("requestline Text: " + requestLine));
-
-
-		if(requestLine != null){
-
-			String[] requestParts = requestLine.split("\\s+");
-
-
-			if(requestParts.length != 3){
-				//send 400 bad request
-
-				log.debug(threadMessage(" Request does not have all of the parts!"));
-				int code = 400;
-				log.debug(threadMessage("ERROR - Imcomplete Request!"));
-				/*for (String part : requestParts){
-
-				if(   ){
-
-				}
-			    }*/ //some regex to check if there is a match for HTTP request
-				String response = HttpResponseUtils.writeErrorResponse(code, "HTTP/1.1", cp.getConnectionPreference());
-				PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
-				out.write(response);
-				out.flush();
-				cp.setConnectionPreference(false);
-				return; 
-
-			}
-			//GET Request
-			else if (requestParts[0].compareToIgnoreCase("GET") == 0 || requestParts[0].compareToIgnoreCase("POST") == 0){
-				log.debug(threadMessage(" Got a GET or POST request. "));
-				
-				method = requestParts[0];
-				filename = requestParts[1];
-				httpVersion = requestParts[2];
-				
-				
-			}else{  // Unsupported Method
-
-				//invalid method
-
-				log.debug(threadMessage(" Got another kind of request: " + requestParts[0]));
-				int code = 501;
-				log.debug(threadMessage("ERROR - Method not Implemented!"));
-				String response = HttpResponseUtils.writeErrorResponse(code, requestParts[2], cp.getConnectionPreference());
-				PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
-				out.write(response);
-				out.flush();
-				
-				cp.setConnectionPreference(false);
-				return;
-				// probably need to flush til the next request line if there is one...
-			}
-
-		}
-		else{ // nothing to read from the stream its probably indicative to close the stream
+		
+		// Try to parse all the information from the HTTP request
+		int code = parser.extract(requestSocket);
+		
+		if(code == 0  ){ // succeeded
 			
+			
+			
+		}else if( code == 400 ){ //bad request
+			
+			String response = HttpResponseUtils.writeErrorResponse(code, "HTTP/1.1", cp.getConnectionPreference());
+			PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
+			out.write(response);
+			out.flush();
+			cp.setConnectionPreference(false);
+			return;
+			
+		} else if( code == 501){
+			String response = HttpResponseUtils.writeErrorResponse(code, parser.http_protocol, cp.getConnectionPreference());
+			PrintWriter out = new PrintWriter(new OutputStreamWriter(requestSocket.getOutputStream()));
+			out.write(response);
+			out.flush();
+			
+			cp.setConnectionPreference(false);
+			return;
+		} else if( code == -1){ // socket timed out on reading
 			requestSocket.close();
+			cp.setConnectionPreference(false);
+			return;
+		} else if( code == -2){ // IO exception on reading
+			//requestSocket.close();
 			cp.setConnectionPreference(false);
 			return;
 		}
 		
-			
-		Map<String, List<String>> headers = new HashMap<String, List<String>>();
-
-		String nextLine;
 		
-		// update state for the /control page
-		synchronized(state){
+		
+		
+		// TODO, add a method to get the filename...
+		/*synchronized(state){
 			state = "Handling " + filename;
-		}
+		}*/
 		
-		try {
-			nextLine = reader.readLine();
-			//log.debug(threadMessage("First line: " + nextLine));
-			boolean run = true;
-			boolean malformedHeader = false;
-			boolean multiLine = false;
-			String lastHeader = null; // for multiLine headers
-			while( nextLine != null && nextLine.compareTo("\n") != 0 && nextLine.compareTo("\r\n") != 0  ){
+		myHttpServletRequest req = new myHttpServletRequest(parser);
+		myHttpServletResponse res = new myHttpServletResponse(requestSocket, parser.http_protocol, parser.keepalive);
+		
+		log.debug("Request object Contents: " + req.toString());
+		
+		HttpServlet servlet = parser.m_servlet;
+		
+//		log.debug(threadMessage(servlet.toString()));
+		
+		if(servlet != null){
 			
-				// to skip the last new line character in the HTTPRequest ( Last line of HttpRequests
-				//   is a newline character, but BufferedReader will return the contents of the line without
-				//   the line-terminating characters (\n ,\r\n). Hence it will return an empty string?
-				if(!nextLine.isEmpty()){ 
+			log.debug("Servlet?: " + servlet.toString());
+			
+			servlet.service(req, res);
+			
+			// flush the buffer if it hasn't already been committed.
+			if(!res.isCommitted()){
+				log.debug("We have to flush the buffer");
+				res.flushBuffer();
+			}
+			
+			/***End Servlet Code here***/
+		}else{
+			
+			/******
+			 * 
+			 * For Static web pages
+			 * 
+			 *********************************/
+			
+			log.debug("servlet was null... Perhaps it is not a servlet");
+			
+			// check headers for HTTP 1.1 compliance
+			boolean httpCompliant = false;
+			
+			String httpVersion = parser.http_protocol;
+
+			// Quick and dirty adaption previous Get methods variables from new parser class.
+			Socket clientSocket = requestSocket;
+			HashMap<String,List<String>> headers = parser.m_headers;
+			String filename = parser.resource_uri;
+			String reqMethod = parser.m_method; 
+			
+			
+			log.debug("Checking if this is a HTTP 1.1 client");
+			
+			
+			
+			if( httpVersion.compareTo("HTTP/1.1") == 0){
+				log.debug("This is a HTTP 1.1 client, checking compliance... (It must contain at least Host: header)");
+				if(!headers.containsKey("host")){
+
+					log.debug(" 'Host:' header not found! this is not HTTP compliant");
+					// Malformed request, send a 400 Bad Request.
+					code = 400;
+					String mimeType = "text/html";
+					String response;
 					
-					
-					//find the whitespace between header and value, if there is none, then its a malformed request
-	
-					int colon = nextLine.indexOf(':');	
-					if( colon == -1 &&  multiLine == false ){
-						
-						//ignore this header, malformed header
+					if(reqMethod.toLowerCase().compareTo("head") == 0){
+						response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, false);
+					}else {
+						response = HttpResponseUtils.writeErrorResponse(code, httpVersion, false);
 					}
-					else if(colon == -1 &&  multiLine == true ){ // possible multiple line header 
-						
-						// add to the value array of header key
-						//log.debug(threadMessage("last header:" + lastHeader));
-						
-						String v = nextLine.trim();
-						
-						//log.debug(threadMessage("v: " + v));
-						
-						if(v.endsWith(",") == true){
-							
-							v = v.substring(0, v.length()-1);
-							//log.debug(threadMessage("without comma v: " + v));
-							multiLine = true;
-						}else{
-							multiLine = false;
-						}
-						
-						headers.get(lastHeader).add( v ); 
+					
+					PrintWriter out;
+					try {
+						out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+
+						out.write(response);
+						out.flush();
+
+						//out.close();
+						return;
 					} 
-					else{ // this is a Single Line Header
-						
-						String header, value;
-
-						
-						header = nextLine.substring(0, colon).toLowerCase().trim(); // exclude the colon
-						value = nextLine.substring(colon+1, nextLine.length()).trim(); 
-
-						List<String> val = new ArrayList<String>();
-
-						if(value.endsWith(",")){ // this is a possible multiline multivalue header, handle the headless values above
-							multiLine = true;
+					catch (SocketTimeoutException timeout ){
+						try {
+							clientSocket.close();
+							cp.setConnectionPreference(false);
+							return;
+						} catch (IOException e1) {
+							// TODO Auto-generated catch block
+							e1.printStackTrace();
 						}
+					}
+					catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}				
 
-						if(header.compareTo("user-agent") != 0){ // one line comma separated multivalue header
+				}
+				else{
+					log.debug(" 'Host:' header found ==> HTTP compliant");
+					httpCompliant = true;
+				}
+			}else{ // HTTP 1.0 doesn't require Headers
+				log.debug(" HTTP/1.0 No 'Host:' header required ==> HTTP 1.0 compliant");
+				httpCompliant = true;
+			}
 
-							for( String v : Arrays.asList(value.split(","))){
-								val.add(v.trim());
+
+			if(httpCompliant == true){
+				try {
+					// Write response (headers and body) for single response
+					//if single file... (assuming we validate path and figure out if it exists prior to this...)
+
+					File f;
+					boolean isDirectory = false;
+					boolean isControl = false;
+					boolean expectContinue = false;
+
+					String mimeType = "text/html";
+
+
+					// check for the 100 Continue header
+					if(headers.containsKey("expect") ){
+
+						log.debug("checking expect: header value");
+						for(String expects : headers.get("expect")){
+							if(expects.toLowerCase().compareTo("100-continue") == 0 
+									&& httpVersion.compareTo("HTTP/1.0") != 0){
+								expectContinue = true;
 							}
 						}
-						else{ // parse user-agent values specially because they can have comments in brackets (...)
 
-							int pos = 0;
+					}
 
-							//log.debug("parsing user-agent");
 
-							while( value != null ){
+					// check for the 'Connection: ' header value
 
-								//log.debug("value: " + value);
+					if(headers.containsKey("connection")){
 
-								// its a comment, add it to the previous user-agent info
-								if(value.startsWith("(")){
+						log.debug("checking the value for Connection: header value");
 
-									int endparen = value.indexOf(')');
-									if(endparen > 0){
-										log.debug("pos: " + pos);
-										int prev = pos-1;
-										log.debug("prev: " + prev);
-										if( prev >= 0){ //there is a valid user agent to apply comment to
-											val.set(prev, val.get(prev) + " " + value.substring(0, endparen+1) );
+						for(String connectionAlive : headers.get("connection")){
+							if(connectionAlive.toLowerCase().compareTo("close") == 0){
+								log.debug("Connection: header is close");
+								cp.setConnectionPreference(false);
+							}
+						}
+
+					}
+					else{ // no connection header value defaults to single request then connection close
+						log.debug("No Connection: header  DEFAULTING to close");
+						cp.setConnectionPreference(false);
+					}
+
+					log.debug("Connection preference currently set to: " + ( cp.getConnectionPreference() == true ? "keep-alive" : "close" ));
+
+
+
+					log.debug(threadMessage("filename requested: " + filename));
+
+	
+					
+					f = new File(root+"/"+filename);
+
+
+					if(filename.compareTo("/") == 0){
+						//filename = "index.html";
+						String explicitPath = root;  
+						log.debug(threadMessage("Requested " + explicitPath));
+						isDirectory = true;
+
+					}
+
+					//special control URLs
+					else if ( filename.compareTo("/shutdown") == 0 ){
+						// in case server is propogating shutdown and we are changing it too, doesn't matter
+						//   b/c it is idempotent.
+
+						personalShutdownFlag = true; // volatile boolean
+
+						log.debug(threadMessage("Requested /SHUTDOWN"));
+
+					}
+					else if ( filename.compareTo("/control") == 0 ){
+						log.debug(threadMessage("Requested /CONTROL"));
+						isControl = true;
+
+					}
+					// its a directory
+					else if ( f.isDirectory() == true ){
+						// generate the list of files in the directory
+						log.debug(threadMessage("Requested a directory!"));
+
+						isDirectory = true;
+					}
+					// its a single file.
+					else {
+						log.debug(threadMessage("Requested a file!"));
+
+					}
+
+					code = 0;
+					String body = "";
+					String response = "";
+
+					if( personalShutdownFlag == true ){ // we got a shutdown requested
+
+						code = 200;
+						mimeType = "text/html";
+						if(reqMethod.toLowerCase().compareTo("head") == 0){
+							response = HttpResponseUtils.writeResponseHeaders(code, httpVersion, false);
+						}else{
+							response = HttpResponseUtils.writeResponseHeaders(code, httpVersion, false);
+						}
+						PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+						//Check for 100 Continue flag
+						if( expectContinue == true ){
+							String continueResponse = HttpResponseUtils.getContinueResponse();
+							out.write(continueResponse);
+						}
+						out.write(response);
+						out.flush();
+						
+						cp.setConnectionPreference(false);
+						return;
+						//out.close();
+
+					}
+
+					else if(isControl){  // Return the control page
+						String controlPage = getControlPageText();
+
+						File controlFile = new File("resources/controlpage.html");
+
+						code = 200;
+						mimeType = "text/html";
+						if(reqMethod.toLowerCase().compareTo("head") == 0){
+							response = HttpResponseUtils.writeHeadResponseHeaders(code, mimeType, controlPage, httpVersion, controlFile.lastModified(), cp.getConnectionPreference());
+						}else{
+							response = HttpResponseUtils.writeResponseHeaders(code, mimeType, controlPage, httpVersion, controlFile.lastModified(), cp.getConnectionPreference());
+						}
+						PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+						//Check for 100 Continue flag
+						if( expectContinue == true ){
+							String continueResponse = HttpResponseUtils.getContinueResponse();
+							out.write(continueResponse);
+						}
+						out.write(response);
+						out.flush();
+						
+						return;
+						//out.close();
+
+					}
+
+					else if(!f.exists() ){ // check if file exists
+
+						// respond with 404 file not found
+						code = 404;
+						log.debug(threadMessage("ERROR - File does not exist!"));
+						if(reqMethod.toLowerCase().compareTo("head") == 0){
+							response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
+						}else{
+							response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+						}
+						PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+						out.write(response);
+						out.flush();
+						
+						return;
+						//out.close();
+
+					}
+
+					else{ // file or directory exists
+
+						if(!f.canRead()){ //check if file is readable
+
+							// respond with 403 file permission denied
+							code = 403;
+							log.debug(threadMessage("ERROR - File access denied!"));
+							if(reqMethod.toLowerCase().compareTo("head") == 0){
+								response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
+							}else{
+								response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+							}
+							
+							PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+							out.write(response);
+							out.flush();
+							
+							return;
+							//out.close();
+						}
+						else { // file is readable
+
+							log.debug(threadMessage("File or directory exists!"));
+
+							// validate the path...
+
+							Path pathString =  Paths.get(root+"/"+filename).toRealPath();
+
+							log.debug("Validating path:   "+ pathString.toString());
+
+							boolean validPath = validatePath(pathString);
+
+							if( validPath == false ){
+
+								code = 403;
+								log.debug(threadMessage("ERROR - File access forbidden!"));
+								if(reqMethod.toLowerCase().compareTo("head") == 0){
+									response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
+								}else{
+									response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+								}
+								
+								PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+								out.write(response);
+								out.flush();
+								
+								return;
+								//out.close();
+
+
+							}
+							else { // it is a valid path
+
+								// check if the request provided the modified/unmodified-Since flag
+								boolean modifiedSinceHeader = false;
+								boolean unmodifiedSinceHeader = false;
+
+								boolean preconditionMet = true;
+
+								if(headers.containsKey("if-modified-since") && headers.containsKey("if-unmodified-since")){
+
+									//error.... It does not make sense to have both headers.
+
+									log.debug(" 'Malformed Request, contains contradictory modified since headers!");
+									// Malformed request, send a 400 Bad Request.
+									code = 400;
+									mimeType = "text/html";
+									if(reqMethod.toLowerCase().compareTo("head") == 0){
+										response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
+									}else{
+										response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+									}
+									PrintWriter out;
+									try {
+										out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+
+										out.write(response);
+										out.flush();
+										
+										return;
+										//out.close();
+									} catch (SocketTimeoutException timeout ){
+										try {
+											clientSocket.close();
+											cp.setConnectionPreference(false);
+											return;
+										} catch (IOException e1) {
+											// TODO Auto-generated catch block
+											e1.printStackTrace();
+										}
+									}catch (IOException e) {
+										// TODO Auto-generated catch block
+										e.printStackTrace();
+									}				
+
+								}
+								else if(headers.containsKey("if-modified-since")){
+									modifiedSinceHeader = true;	
+								}
+								else if(headers.containsKey("if-unmodified-since")){
+									unmodifiedSinceHeader = true;
+								}
+
+								Date lastModified = new Date(f.lastModified());
+
+								if(modifiedSinceHeader ){
+
+									log.debug(threadMessage("checking if the file was modified since certain date"));
+
+									Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-modified-since").get(0));
+
+									if(headerModified == null ){ // ignore the malformed header
+										preconditionMet = true;
+									}
+									else if( lastModified.before( headerModified ) || lastModified.equals( headerModified )){
+										if(headerModified != null){
+											log.debug(" File had not been modified since: "+ headerModified.toString());
+										}
+										// Precondition Failed, send a 412 Bad Request.
+										code = 412;
+										mimeType = "text/html";
+										if(reqMethod.toLowerCase().compareTo("head") == 0){
+											response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
+
+										}else{
+											response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+										}
+										PrintWriter out;
+										try {
+											out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+
+											out.write(response);
+											out.flush();
+											return;
+											//out.close();
+										} catch (SocketTimeoutException timeout ){
+											try {
+												clientSocket.close();
+												cp.setConnectionPreference(false);
+												return;
+											} catch (IOException e1) {
+												// TODO Auto-generated catch block
+												e1.printStackTrace();
+											}
+										}catch (IOException e) {
+											// TODO Auto-generated catch block
+											e.printStackTrace();
+										}		
+
+										preconditionMet = false;
+
+									}
+
+								}
+								else if (unmodifiedSinceHeader ){
+
+									log.debug(threadMessage("checking if the file was modified since certain date"));
+
+									Date headerModified = HttpResponseUtils.parseHeaderDate(headers.get("if-unmodified-since").get(0));
+
+									if(headerModified == null){ // ignore the malformed data
+										log.debug(threadMessage("Error Parsing date, ignoring the header"));
+										preconditionMet = true;
+									}
+
+									else if( lastModified.after( headerModified )){
+
+										log.debug(" File had not been unmodified since: "+ headerModified.toString());
+										// Malformed request, send a 400 Bad Request.
+										code = 412;
+										mimeType = "text/html";
+										if(reqMethod.toLowerCase().compareTo("head") == 0){
+											response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
+										}else{
+											response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+										}
+										PrintWriter out;
+										try {
+											out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+
+											out.write(response);
+											out.flush();
+											return;
+											//out.close();
+										} catch (SocketTimeoutException timeout ){
+											try {
+												clientSocket.close();
+												cp.setConnectionPreference(false);
+												return;
+											} catch (IOException e1) {
+												// TODO Auto-generated catch block
+												e1.printStackTrace();
+											}
+										}catch (IOException e) {
+											// TODO Auto-generated catch block
+											e.printStackTrace();
+										}		
+
+										preconditionMet = false;
+
+									}
+								}
+
+								// either the If-Unmodified/Modified-Since headers were not included or the precondition was met
+								//    either one.
+								if(preconditionMet == true){ 
+
+									if(isDirectory){
+										log.debug(threadMessage("Got a directory request"));
+										StringBuffer directoryContents = new StringBuffer();
+										StringBuffer fileContents = new StringBuffer();
+
+										// generate html page of the files in directory....
+
+										File directoryPage = new File("resources/directory.html");
+
+										BufferedReader directoryReader = new BufferedReader(new FileReader(directoryPage));
+
+										String line;
+
+										while((line = directoryReader.readLine()) != null){
+											directoryContents.append(line);
+										}
+
+
+										File[] listofFiles = f.listFiles();
+
+										for(File file : listofFiles){
+
+											if (file.isFile()) {
+												fileContents.append("<p> - " + file.getName()+"</p>");
+											} else if (file.isDirectory()) {
+												fileContents.append("<p style=\"font-weight:bold\"> - " + file.getName() +"/</p>");
+											}
+
+										}
+
+										String directory = directoryContents.toString();
+										directory = directory.replace("<!-- Include files HERE -->", fileContents.toString());
+										directory = directory.replace("<!-- Directory Name -->", f.getName()+"/");
+
+										// set the code 
+										code = 200;
+										body = directory.toString();
+										mimeType = "text/html";
+										if(reqMethod.toLowerCase().compareTo("head") == 0){
+											response = HttpResponseUtils.writeHeadResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
+
+										}else{
+											response = HttpResponseUtils.writeResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
+
+										}
+										
+										PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+
+										//Check for 100 Continue flag
+										if( expectContinue == true ){
+											String continueResponse = HttpResponseUtils.getContinueResponse();
+											out.write(continueResponse);
+										}
+
+
+										out.write(response);
+										out.flush();
+										
+										//out.close();
+
+									}
+
+									else{
+										mimeType = getMimeType(filename);
+
+										if(mimeType == null && f.isFile() == false ){
+											//unsupported file type 415
+											code = 415;
+
+											// generate the html here...
+											if(reqMethod.toLowerCase().compareTo("head") == 0){
+												response = HttpResponseUtils.writeHeadErrorResponse(code, httpVersion, cp.getConnectionPreference());
+											}else{
+												response = HttpResponseUtils.writeErrorResponse(code, httpVersion, cp.getConnectionPreference());
+											}
+											PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+											out.write(response);
+											out.flush();
+											return;
+											//out.close();
+
+										}
+										else if(mimeType == null && f.isFile() == true ){ // Unsupported Media Type
+											log.debug(threadMessage("file type unknown: "));
+
+
+											code = 200;
+											mimeType = "application/octet-stream";
+
+											Path path = FileSystems.getDefault().getPath(root, filename);
+											BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
+											// re-use image byte stream headers to send data 
+											PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+											if(reqMethod.toLowerCase().compareTo("head") == 0){
+												response = HttpResponseUtils.writeHeadImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
+
+												//Check for 100 Continue flag
+												if( expectContinue == true ){
+													String continueResponse = HttpResponseUtils.getContinueResponse();
+													outHeaders.write(continueResponse);
+												}
+
+												outHeaders.write(response);
+												outHeaders.flush();
+												return;
+											}else{
+												
+												response = HttpResponseUtils.writeImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
+
+												//Check for 100 Continue flag
+												if( expectContinue == true ){
+													String continueResponse = HttpResponseUtils.getContinueResponse();
+													outHeaders.write(continueResponse);
+												}
+
+												outHeaders.write(response);
+												outHeaders.flush();
+
+												FileInputStream fileInputStm = new FileInputStream(f);
+												DataOutputStream  dataOutputStm = new DataOutputStream(clientSocket.getOutputStream());
+
+												try {
+													sendBinaryData(fileInputStm, dataOutputStm);
+												} catch (SocketTimeoutException timeout ){
+													try {
+														clientSocket.close();
+														cp.setConnectionPreference(false);
+														return;
+													} catch (IOException e1) {
+														// TODO Auto-generated catch block
+														e1.printStackTrace();
+													}
+												}catch (Exception e) {
+													// TODO Auto-generated catch block
+													e.printStackTrace();
+													synchronized(state){
+														state = "ERROR in sending Binary Data";
+													}
+												}
+												
+												return;
+											}
+
+											//fileInputStm.close();
+											//dataOutputStm.close();
+											//outHeaders.close();
+
+										}
+										else if ( mimeType.substring(0, mimeType.indexOf("/")).compareTo("image") == 0 ){ // its an image
+											log.debug(threadMessage("Got image file type: "+mimeType));
+
+											//set the code
+											code = 200;
+
+											Path path = FileSystems.getDefault().getPath(root, filename);
+											BasicFileAttributes attrs = Files.readAttributes(path , BasicFileAttributes.class);
+											
+											PrintWriter outHeaders = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+
+											
+											if(reqMethod.toLowerCase().compareTo("head") == 0){
+												response = HttpResponseUtils.writeHeadImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
+
+
+												//Check for 100 Continue flag
+												if( expectContinue == true ){
+													String continueResponse = HttpResponseUtils.getContinueResponse();
+													outHeaders.write(continueResponse);
+												}
+												outHeaders.write(response);
+												outHeaders.flush();
+
+											}else{
+												
+												response = HttpResponseUtils.writeImageResponseHeaders(code, mimeType, httpVersion, attrs.size(), f.lastModified(), cp.getConnectionPreference() );
+
+												outHeaders.write(response);
+												outHeaders.flush();
+
+												FileInputStream fileInputStm = new FileInputStream(f);
+												DataOutputStream  dataOutputStm = new DataOutputStream(clientSocket.getOutputStream());
+
+												try {
+													sendBinaryData(fileInputStm, dataOutputStm);
+												} catch (SocketTimeoutException timeout ){
+													try {
+														clientSocket.close();
+														cp.setConnectionPreference(false);
+														return;
+													} catch (IOException e1) {
+														// TODO Auto-generated catch block
+														e1.printStackTrace();
+													}
+												}catch (Exception e) {
+													// TODO Auto-generated catch block
+													e.printStackTrace();
+													synchronized(state){
+														state = "ERROR in sending Binary Data";
+													}
+												}
+
+
+												//											fileInputStm.close();
+												//											dataOutputStm.close();
+												//											outHeaders.close();
+											}
+										}else { // its text file
+
+											log.debug(threadMessage("Got text file type: "+mimeType));
+
+											BufferedReader filereader = new BufferedReader(new FileReader(f));
+
+											StringBuffer contents = new StringBuffer();
+											String line;
+											while( (line = filereader.readLine()) != null ){
+												contents.append(line);
+											}
+
+											log.debug(threadMessage("file contents: " + contents.toString()));
+
+											//set the code
+											code = 200;
+											body = contents.toString();
+											if(reqMethod.toLowerCase().compareTo("head") == 0){
+												response = HttpResponseUtils.writeHeadResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
+											}else{
+												response = HttpResponseUtils.writeResponseHeaders(code, mimeType, body, httpVersion, f.lastModified(), cp.getConnectionPreference());
+											}
+											
+											PrintWriter out = new PrintWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
+
+											//Check for 100 Continue flag
+											if( expectContinue == true ){
+												String continueResponse = HttpResponseUtils.getContinueResponse();
+												out.write(continueResponse);
+											}
+
+											out.write(response);
+											out.flush();
+
+											//out.close();
 										}
 									}
 
-									value = ( value.substring(endparen+1).trim() );
-									pos = pos-1; // since we move the potential element to the previous element 
-
 								}
-								else {
-									int nextSpace = value.indexOf(' ');
-									if(nextSpace < 0 ){ // last agent thing
-										val.add(value.trim());
-										value = null;
-									}
-									else{
-										val.add(value.substring(0, nextSpace));
-										value = value.substring(nextSpace).trim();
-									}
-
-								}
-								pos ++;
 							}
-
 						}
-
-
-						headers.put(header, val);
-
-						//log.debug(threadMessage("Header: " + header + 
-						//		"  |  Value: " + val.toString()));
-
-						lastHeader = header;
 					}
-					
-					nextLine = reader.readLine();
-					//log.debug(threadMessage("Next line: " + nextLine));
-				}
-				else{
-					nextLine = null; // trigger the termination condition
-				}
-			}
-			
-			log.debug(threadMessage("Out of while loop: "));
-			
-			
-			for( String key : headers.keySet()){
-				
-				log.debug("key : " + key + ": " + headers.get(key).toString());
-				
-				
-			}
-			
-			
-		} catch (SocketTimeoutException timeout ){
-			try {
-				cp.setConnectionPreference(false);
-				return;
-			} catch (IOException e1) {
-				// TODO Auto-generated catch block
-				e1.printStackTrace();
-			}
-		}catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			synchronized(state){
-				state = "ERROR in reading Headers";
-			}
-		}
+					//clientSocket.close();
 
-		/** Http Servlet code here  **/
-		
-		myHttpServletRequest req = new myHttpServletRequest(session);
-		myHttpServletResponse res = new myHttpServletResponse();
-		
-		// Fill in the Method, parameters?, and headers
-		req.setMethod(method);
-		req.setProtocol(httpVersion);
-		
-		for( String key : headers.keySet()){
-			req.setHeader(key, headers.get(key));	
-		}
-		
-		// If any parameters are provided as a part of the HTTP request add them the request object 
-		populateParameters(req, filename);
-		
-		
-		int isUrl;
-		if( (isUrl = checkifURL(filename)) > 0 ){
-			log.debug(threadMessage("filename is an absolute URL, parsing " ));
-			String resource = parseURLforResource(filename, isUrl);
-			
-			filename = resource;
-			
-		}
-		
-		
-		// Check if the resource requested is a servlet
-		int question = filename.indexOf('?');
-		String servletName; 
-		
-		if(question != -1){
-			servletName = filename.substring(0, filename.indexOf('?'));
-		}else{
-			servletName = filename;
-		}
-		
-		List<String> urls = new ArrayList<String>(servletURLMap.values());
-		Collections.sort( urls, new StringComparator());
-		
-		String sname = null;
-		for( String pattern  : urls  ){
-			
-			if( filename.startsWith(pattern) ){ // longest match should be caught first
-				for( String key : servletURLMap.keySet() ){
-					if( pattern.equals(servletURLMap.get(key)) ){
-						sname = key;
+				} catch (SocketTimeoutException timeout ){
+					try {
+						clientSocket.close();
+						cp.setConnectionPreference(false);
+						return;
+					} catch (IOException e1) {
+						// TODO Auto-generated catch block
+						e1.printStackTrace();
+					}
+				}catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					synchronized(state){
+						state = "ERROR in retreiving File";
 					}
 				}
-				
-				break;
-			}
-			
+			}			
 		}
-		
-		if( sname == null  ){ //no servlet found
-			
-			servletName = "default";
-			
-		}else{
-			servletName = sname;
-		}
-		
-		HttpServlet servlet = servletMap.get(servletName);
-		
-		if(servlet == null){
-			// servlet not found error
-		}
-		else{
-			servlet.service(req, res);
-		}
-		
-		/***End Servlet Code here***/
-		
 		
 	}
 	

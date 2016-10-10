@@ -19,7 +19,6 @@ import org.apache.log4j.Logger;
 import org.xml.sax.Attributes;
 import org.xml.sax.helpers.DefaultHandler;
 
-import edu.upenn.cis.cis455.webserver.servlet.myHttpServlet;
 import edu.upenn.cis.cis455.webserver.servlet.myHttpServletSession;
 import edu.upenn.cis.cis455.webserver.servlet.myServletConfig;
 import edu.upenn.cis.cis455.webserver.servlet.myServletContext;
@@ -53,7 +52,7 @@ public class myServer extends Thread{
 	
 	//Servlet Session, context and Map of Servlet Objects.
 	myServletContext context;
-	HashMap<String,myHttpServlet> servlets;
+	HashMap<String,HttpServlet> servlets;
 	myHttpServletSession session;
 	
 	final int num_threads = 2;
@@ -169,8 +168,8 @@ public class myServer extends Thread{
 		return h;
 	}
 	
-	private static myServletContext createContext(Handler h) {
-		myServletContext fc = new myServletContext();
+	private static myServletContext createContext(Handler h, String root_dir) {
+		myServletContext fc = new myServletContext(root_dir);
 		for (String param : h.m_contextParams.keySet()) {
 			fc.setInitParam(param, h.m_contextParams.get(param));
 		}
@@ -208,6 +207,9 @@ public class myServer extends Thread{
 		HashMap<String,HttpServlet> servlets = null;
 		HashMap<String,String> url_mappings = null;
 		HashMap<String,myHttpServletSession> session = new HashMap<String,myHttpServletSession>();
+		
+		statusHandle stats = new statusHandle(threadPool);
+		myServletContext context;
 		try {
 			h = parseWebdotxml(web_dir);
 			
@@ -233,7 +235,10 @@ public class myServer extends Thread{
 			}
 			*/
 			
-			myServletContext context = createContext(h);
+			context = createContext(h, root_dir);
+			context.setThreadStatusHandle(stats);
+			
+			log.debug("Servlet context: " + context.toString());
 			
 			servlets = createServlets(h, context);
 			url_mappings = h.m_servletUrlPatterns;
@@ -243,6 +248,9 @@ public class myServer extends Thread{
 		} catch (Exception e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
+			
+			return; // its important to correctly parse the web.xml
+			
 		}
 		
 		
@@ -253,7 +261,7 @@ public class myServer extends Thread{
 		
 		// class that hold refs to all threads so that each individual thread can query 
 		//  the status of other threads if a control page is requested of them.
-		statusHandle stats = new statusHandle(threadPool);
+		
 		
 		//start threads in threadPool
 		for(workerThread t : threadPool){

@@ -1,10 +1,17 @@
 package edu.upenn.cis.cis455.webserver.servlet;
 
+import java.io.File;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.Vector;
 
@@ -13,14 +20,26 @@ import javax.servlet.Servlet;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 
+import org.apache.log4j.Logger;
+
+import edu.upenn.cis.cis455.webserver.statusHandle;
+
 public class myServletContext implements ServletContext{
+	
+	Logger log = Logger.getLogger(myServletContext.class);
+	
 	
 	private HashMap<String,Object> attributes;
 	private HashMap<String,String> initParams;
+	private String root_dir = null;
+	private statusHandle statusHandle = null;
+	
 
-	public myServletContext (){
+	public myServletContext (String dir){
 		attributes = new HashMap<String,Object>();
 		initParams = new HashMap<String,String>();
+		
+		root_dir = dir;
 	}
 	
 	@Override
@@ -37,7 +56,8 @@ public class myServletContext implements ServletContext{
 
 	@Override
 	public myServletContext getContext(String name) {
-		return null;
+		// may need to handle this for extra credit where there are multiple web apps
+		return this;
 	}
 
 	@Override
@@ -74,7 +94,38 @@ public class myServletContext implements ServletContext{
 
 	@Override
 	public String getRealPath(String path) {
+		
+		// not really sure how to deal with resources in /resources/ 
+		
+		// also assumption is that contextpath is null given that we only have a single web app.
+		
+		//File f = new File(root_dir+path);
+		
+		URL resource = myServletContext.class.getClassLoader().getResource(path);
+		
+		log.debug("resource URI: " + resource);
+		if(resource != null){
+			try {
+				Path p = Paths.get(resource.toURI()).toAbsolutePath();
+				
+				File f = new File(p.toString());
+
+				if(f.exists() == true){
+					//return root_dir+path;
+					return p.toString();
+				}
+
+				return null;
+			} catch (URISyntaxException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+
+				return null;
+			}
+		}
 		return null;
+		
+		
 	}
 
 	@Override
@@ -94,6 +145,31 @@ public class myServletContext implements ServletContext{
 
 	@Override
 	public Set getResourcePaths(String path) {
+		
+		File f = new File(root_dir+path);
+		
+		if(f.isDirectory()){
+			File[] listofFiles = f.listFiles();
+			if(listofFiles.length == 0){
+				return null;
+			}else{
+				List<File> list =  Arrays.asList(listofFiles);
+
+				Set<String> files = new HashSet<String>();
+
+				for(File file  : list ){
+					if(file.isDirectory()){
+						files.add(file.getName()+"/");
+					}else{
+						files.add(file.getName());
+					}
+				}
+				
+				return files;
+			}
+			
+		}
+				
 		return null;
 	}
 
@@ -102,6 +178,7 @@ public class myServletContext implements ServletContext{
 		return "My HTTP Server";
 	}
 
+	//DEPRECATED
 	@Override
 	public Servlet getServlet(String name) {
 		return null;
@@ -111,12 +188,14 @@ public class myServletContext implements ServletContext{
 	public String getServletContextName() {
 		return "my Servlet Context";
 	}
-
+	
+	//DEPRECATED
 	@Override
 	public Enumeration getServletNames() {
 		return null;
 	}
 
+	//DEPRECATED
 	@Override
 	public Enumeration getServlets() {
 		return null;
@@ -127,6 +206,7 @@ public class myServletContext implements ServletContext{
 		System.err.println(msg);
 	}
 
+	//DEPRECATED
 	@Override
 	public void log(Exception exception, String msg) {
 		log(msg, (Throwable) exception);
@@ -151,5 +231,28 @@ public class myServletContext implements ServletContext{
 	public void setInitParam(String name, String value) {
 		initParams.put(name, value);
 	}
+	
+	public void setThreadStatusHandle(statusHandle s){
+		statusHandle = s;
+	}
+	
+	public String getThreadStatuses(){
+		return statusHandle.getAllThreadStatus();
+	}
+	
+	public boolean validatePath(Path filePath){
+				
+		log.debug("Absolute path of file/directory: " + filePath.toString());
+		log.debug("Absolute path of root: " + root_dir);
+		
+		if( filePath.startsWith(root_dir) ){
+			return true;
+		}
+		return false;
+		
+	}
+	
+	
+	
 
 }
